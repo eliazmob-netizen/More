@@ -51,6 +51,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     private var timeRevision = 0L
     private var qualityRevision = 0L
     private var autoJob: Job? = null
+    private var persistJob: Job? = null
     private var lastUiTimeSyncMs = 0L
 
     private val _uiState = MutableStateFlow(
@@ -107,15 +108,35 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             val saved = prefsRepo.preferencesFlow.first()
+            timeRevision++
             qualityRevision++
+            val gyroEnabled = saved.gyroMode && orientationController.isAvailable
+            if (gyroEnabled) {
+                orientationController.setGyroEnabled(true)
+            }
             _uiState.update {
                 it.copy(
                     seaState = it.seaState.copy(
                         lat = saved.lat,
                         lon = saved.lon,
                         qualityMode = saved.qualityMode,
-                        t = AtmosphereMath.hoursNow(null),
+                        gyroMode = gyroEnabled,
+                        wind = saved.wind,
+                        cloud = saved.cloud,
+                        rain = saved.rain,
+                        fog = saved.fog,
+                        storm = saved.storm,
+                        cam = saved.cam,
+                        windDir = saved.windDir,
+                        realTime = saved.realTime,
+                        fastDay = saved.fastDay,
+                        t = if (saved.realTime) AtmosphereMath.hoursNow(null) else saved.manualTimeHours,
                         doy = AtmosphereMath.doyNow(),
+                        lhOn = saved.lhOn,
+                        shipOn = saved.shipOn,
+                        birdsOn = saved.birdsOn,
+                        dropsOn = saved.dropsOn,
+                        fastShip = saved.fastShip,
                     ),
                 )
             }
@@ -128,6 +149,14 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun pushStateToRenderer() {
         renderer.updateConfig(_uiState.value.seaState, timeRevision, qualityRevision)
+    }
+
+    private fun persistCurrentState(immediate: Boolean = false) {
+        persistJob?.cancel()
+        persistJob = viewModelScope.launch {
+            if (!immediate) delay(200L)
+            prefsRepo.saveSeaState(_uiState.value.seaState)
+        }
     }
 
     fun onResume() {
@@ -175,6 +204,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onCallShip() {
@@ -280,6 +310,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             pushStateToRenderer()
+            persistCurrentState(immediate = true)
         } catch (_: Exception) {
             _uiState.update {
                 it.copy(sourceStatus = appContext.getString(R.string.status_weather_error))
@@ -388,6 +419,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onSelectWeatherPreset(preset: WeatherPreset) {
@@ -406,6 +438,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onSelectTimePreset(preset: TimePreset) {
@@ -434,6 +467,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onTimeChanged(hours: Double) {
@@ -450,6 +484,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onWindChanged(wind: Double) {
@@ -466,6 +501,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onCloudChanged(cloud: Double) {
@@ -478,6 +514,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onRainChanged(rain: Double) {
@@ -494,6 +531,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onFogChanged(fog: Double) {
@@ -506,6 +544,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onCamChanged(camDeg: Double) {
@@ -518,31 +557,37 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onToggleLh(enabled: Boolean) {
         _uiState.update { it.copy(seaState = it.seaState.copy(lhOn = enabled)) }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleShip(enabled: Boolean) {
         _uiState.update { it.copy(seaState = it.seaState.copy(shipOn = enabled)) }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleBirds(enabled: Boolean) {
         _uiState.update { it.copy(seaState = it.seaState.copy(birdsOn = enabled)) }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleDrops(enabled: Boolean) {
         _uiState.update { it.copy(seaState = it.seaState.copy(dropsOn = enabled)) }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleFastShip(enabled: Boolean) {
         _uiState.update { it.copy(seaState = it.seaState.copy(fastShip = enabled)) }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleRealTime(enabled: Boolean) {
@@ -557,6 +602,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleFastDay(enabled: Boolean) {
@@ -572,6 +618,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onQualityChanged(mode: QualityMode) {
@@ -587,5 +634,6 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         orientationController.stop()
         autoJob?.cancel()
+        persistJob?.cancel()
     }
 }

@@ -35,4 +35,7 @@
     <string name="status_gyro_unavailable">Датчики ориентации недоступны на этом устройстве</string>
     <string name="status_ship_called">Парусник выходит слева и идёт к вам, обходя справа. Настоящая скорость около 5 узлов.</string>
     <string name="error_gl_unavailable">Не удалось запустить OpenGL ES 2.0 на этом устройстве.</string>
+    <string name="wallpaper_description">Живое море, небо, реальная погода и управление гироскопом</string>
+    <string name="action_set_wallpaper">Живые обои</string>
+    <string name="status_wallpaper_picker_error">Откройте настройки телефона → Обои → Живые обои → «Море и небо»</string>
 </resources>

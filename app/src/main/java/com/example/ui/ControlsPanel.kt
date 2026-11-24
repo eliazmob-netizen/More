@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,6 +82,7 @@ fun ControlsPanel(
     onToggleAuto: () -> Unit,
     onToggleGyro: () -> Unit,
     onCallShip: () -> Unit,
+    onSetLiveWallpaper: () -> Unit,
     onSelectRainbow: () -> Unit,
     onSelectWeatherPreset: (WeatherPreset) -> Unit,
     onSelectTimePreset: (TimePreset) -> Unit,
@@ -148,6 +150,13 @@ fun ControlsPanel(
                     selected = false,
                     onClick = onCallShip,
                     testTag = "call_ship_button",
+                )
+                ActionPillChip(
+                    label = stringResource(R.string.action_set_wallpaper),
+                    icon = Icons.Rounded.Wallpaper,
+                    selected = false,
+                    onClick = onSetLiveWallpaper,
+                    testTag = "set_wallpaper_button",
                 )
             }
 

@@ -1,6 +1,12 @@
 package com.example.ui
 
 import android.Manifest
+import android.app.WallpaperManager
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -41,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -55,6 +63,7 @@ import com.example.ui.theme.GlassSurface
 import com.example.ui.theme.OceanAbyss
 import com.example.ui.theme.OceanBlue
 import com.example.ui.theme.SeaFoamInk
+import com.example.wallpaper.SeaWallpaperService
 
 @Composable
 fun SeaScreen(
@@ -63,6 +72,7 @@ fun SeaScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
 
     BackHandler(enabled = uiState.isControlsOpen) {
         viewModel.toggleControls()
@@ -144,7 +154,7 @@ fun SeaScreen(
             }
         }
 
-        // Top-right floating HUD actions: quick gyroscope toggle + settings button
+        // Top-right floating HUD actions: live wallpaper, quick gyroscope toggle, settings button
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -153,6 +163,27 @@ fun SeaScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Surface(
+                modifier = Modifier
+                    .size(48.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { launchLiveWallpaperPicker(context) })
+                    }
+                    .testTag("quick_wallpaper_button"),
+                shape = CircleShape,
+                color = GlassSurface,
+                border = BorderStroke(1.dp, GlassBorder),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Wallpaper,
+                        contentDescription = stringResource(R.string.action_set_wallpaper),
+                        tint = SeaFoamInk,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+            }
+
             val gyroActive = uiState.seaState.gyroMode
             Surface(
                 modifier = Modifier
@@ -226,6 +257,7 @@ fun SeaScreen(
                 },
                 onToggleGyro = viewModel::onToggleGyro,
                 onCallShip = viewModel::onCallShip,
+                onSetLiveWallpaper = { launchLiveWallpaperPicker(context) },
                 onSelectRainbow = viewModel::onSelectRainbow,
                 onSelectWeatherPreset = viewModel::onSelectWeatherPreset,
                 onSelectTimePreset = viewModel::onSelectTimePreset,
@@ -248,5 +280,33 @@ fun SeaScreen(
                 onQualityChanged = viewModel::onQualityChanged,
             )
         }
+    }
+}
+
+private fun launchLiveWallpaperPicker(context: Context) {
+    val directIntent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+        putExtra(
+            WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+            ComponentName(context, SeaWallpaperService::class.java),
+        )
+    }
+    try {
+        context.startActivity(directIntent)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            context.startActivity(Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
+        } catch (_: Exception) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.status_wallpaper_picker_error),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    } catch (_: Exception) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.status_wallpaper_picker_error),
+            Toast.LENGTH_LONG,
+        ).show()
     }
 }

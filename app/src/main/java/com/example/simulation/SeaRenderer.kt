@@ -220,6 +220,11 @@ class SeaRenderer(
             GLES20.glUniform1i(u1.getValue("uNrm"), 3)
 
             ready = true
+            ovFrame = 0
+            lastOvCam = null
+            lastQualityRevision = -1L
+            lastTimeRevision = -1L
+            bkRow = AtmosphereMath.LH
             dirtyLut.set(true)
             lastFrameStartMs = SystemClock.uptimeMillis()
             nextAutoShipMs = lastFrameStartMs + 6000L
