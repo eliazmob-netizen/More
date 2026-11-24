@@ -18,12 +18,13 @@
     <string name="label_span">Панорама</string>
     <string name="toggle_lighthouse">Маяк</string>
     <string name="lighthouse_mode_title">Свет маяка</string>
-    <string name="lh_mode_fixed">Свет стоит</string>
-    <string name="lh_mode_slow">Крутится медленно</string>
-    <string name="lh_mode_fast">Крутится как сейчас</string>
+    <string name="lh_mode_fixed">Неподвижно</string>
+    <string name="lh_mode_slow">Медленно</string>
+    <string name="lh_mode_fast">Быстро</string>
     <string name="wallpaper_scroll_title">Поведение на рабочем столе</string>
     <string name="scroll_mode_fixed">Неподвижные</string>
     <string name="scroll_mode_panorama">Двигаются при листании</string>
+    <string name="label_screen_count">Сколько экранов на рабочем столе</string>
     <string name="label_home_screen">Главный экран (кадр по центру)</string>
     <string name="label_preview_screen">Посмотреть на экране</string>
     <string name="scroll_dir_right">Сдвиг: вправо</string>

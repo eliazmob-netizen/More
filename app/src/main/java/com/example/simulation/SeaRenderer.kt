@@ -161,7 +161,7 @@ class SeaRenderer(
                 "uRes", "uTilt", "uTime", "uCloud", "uWind", "uRain", "uFog", "uFlash",
                 "uMoonPh", "uMoonL", "uStar", "uWDir", "uStarRot", "uBow", "uBolt", "uNight",
                 "uObj", "uLook", "uLH", "uOv", "uNrm", "uSun", "uSunL", "uSunD", "uMoon",
-                "uAmb", "uPole", "uSky",
+                "uAmb", "uPole", "uSky", "uCloudLayers",
             ).forEach { name -> u1[name] = GLES20.glGetUniformLocation(p1, name) }
 
             u2.clear()
@@ -438,6 +438,12 @@ class SeaRenderer(
             p.lhMode.ordinal.toFloat(),
             p.lhFixedB.toFloat(),
         )
+        GLES20.glUniform3f(
+            u1.getValue("uCloudLayers"),
+            p.cloudLow.toFloat(),
+            p.cloudMid.toFloat(),
+            p.cloudHigh.toFloat(),
+        )
         GLES20.glUniform3f(u1.getValue("uSun"), p.sun[0].toFloat(), p.sun[1].toFloat(), p.sun[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uSunL"), p.sunL[0].toFloat(), p.sunL[1].toFloat(), p.sunL[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uSunD"), p.sunD[0].toFloat(), p.sunD[1].toFloat(), p.sunD[2].toFloat())
@@ -550,7 +556,13 @@ class SeaRenderer(
         val a = bkAmb
         val l = (a[0] + a[1] + a[2]) / 3.0
         val o = p.over
-        val finalAmb = DoubleArray(3) { k -> (a[k] * (1.0 - o * 0.7) + l * o * 0.7) * (1.0 - 0.35 * o) }
+        val dayW = AtmosphereMath.clamp((p.elDeg + 1.0) / 14.0, 0.0, 1.0)
+        val neutralDay = doubleArrayOf(l * 0.95, l * 0.99, l * 1.06)
+        val cloudBright = (1.0 + o * dayW * 0.55 - 0.30 * s.rain).coerceAtLeast(0.45)
+        val finalAmb = DoubleArray(3) { k ->
+            val mixed = a[k] * (1.0 - o * 0.85) + neutralDay[k] * (o * 0.85)
+            mixed * cloudBright
+        }
         val updated = p.copy(amb = finalAmb)
         curParams = updated
         lightModel = AtmosphereMath.makeLight(updated, lutBuf)

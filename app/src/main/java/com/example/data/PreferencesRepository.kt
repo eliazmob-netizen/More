@@ -24,6 +24,9 @@ data class SavedPreferences(
     val gyroMode: Boolean = false,
     val wind: Double = 0.22,
     val cloud: Double = 0.30,
+    val cloudLow: Double = 0.25,
+    val cloudMid: Double = 0.28,
+    val cloudHigh: Double = 0.22,
     val rain: Double = 0.0,
     val fog: Double = 0.0,
     val storm: Double = 0.0,
@@ -40,6 +43,7 @@ data class SavedPreferences(
     val dropsOn: Boolean = true,
     val fastShip: Boolean = false,
     val scrollMode: WallpaperScrollMode = WallpaperScrollMode.FIXED,
+    val screenCount: Int = 3,
     val homeScreenIndex: Int = 1,
     val scrollSpanDeg: Double = 90.0,
     val scrollReverse: Boolean = false,
@@ -55,6 +59,9 @@ class PreferencesRepository(private val context: Context) {
         val GYRO_MODE = booleanPreferencesKey("sea_gyro")
         val WIND = doublePreferencesKey("sea_wind")
         val CLOUD = doublePreferencesKey("sea_cloud")
+        val CLOUD_LOW = doublePreferencesKey("sea_cloud_low")
+        val CLOUD_MID = doublePreferencesKey("sea_cloud_mid")
+        val CLOUD_HIGH = doublePreferencesKey("sea_cloud_high")
         val RAIN = doublePreferencesKey("sea_rain")
         val FOG = doublePreferencesKey("sea_fog")
         val STORM = doublePreferencesKey("sea_storm")
@@ -71,6 +78,7 @@ class PreferencesRepository(private val context: Context) {
         val DROPS_ON = booleanPreferencesKey("sea_drops_on")
         val FAST_SHIP = booleanPreferencesKey("sea_fast_ship")
         val SCROLL_MODE = stringPreferencesKey("sea_scroll_mode")
+        val SCREEN_COUNT = intPreferencesKey("sea_screen_count")
         val HOME_SCREEN_INDEX = intPreferencesKey("sea_home_screen_index")
         val SCROLL_SPAN_DEG = doublePreferencesKey("sea_scroll_span_deg")
         val SCROLL_REVERSE = booleanPreferencesKey("sea_scroll_reverse")
@@ -95,6 +103,9 @@ class PreferencesRepository(private val context: Context) {
             gyroMode = prefs[Keys.GYRO_MODE] ?: false,
             wind = prefs[Keys.WIND] ?: 0.22,
             cloud = prefs[Keys.CLOUD] ?: 0.30,
+            cloudLow = prefs[Keys.CLOUD_LOW] ?: 0.25,
+            cloudMid = prefs[Keys.CLOUD_MID] ?: 0.28,
+            cloudHigh = prefs[Keys.CLOUD_HIGH] ?: 0.22,
             rain = prefs[Keys.RAIN] ?: 0.0,
             fog = prefs[Keys.FOG] ?: 0.0,
             storm = prefs[Keys.STORM] ?: 0.0,
@@ -111,6 +122,7 @@ class PreferencesRepository(private val context: Context) {
             dropsOn = prefs[Keys.DROPS_ON] ?: true,
             fastShip = prefs[Keys.FAST_SHIP] ?: false,
             scrollMode = scrollMode,
+            screenCount = (prefs[Keys.SCREEN_COUNT] ?: 3).coerceIn(2, 9),
             homeScreenIndex = (prefs[Keys.HOME_SCREEN_INDEX] ?: 1).coerceAtLeast(1),
             scrollSpanDeg = (prefs[Keys.SCROLL_SPAN_DEG] ?: 90.0).coerceIn(20.0, 180.0),
             scrollReverse = prefs[Keys.SCROLL_REVERSE] ?: false,
@@ -146,6 +158,9 @@ class PreferencesRepository(private val context: Context) {
             prefs[Keys.GYRO_MODE] = state.gyroMode
             prefs[Keys.WIND] = state.wind
             prefs[Keys.CLOUD] = state.cloud
+            prefs[Keys.CLOUD_LOW] = state.cloudLow
+            prefs[Keys.CLOUD_MID] = state.cloudMid
+            prefs[Keys.CLOUD_HIGH] = state.cloudHigh
             prefs[Keys.RAIN] = state.rain
             prefs[Keys.FOG] = state.fog
             prefs[Keys.STORM] = state.storm
@@ -162,6 +177,7 @@ class PreferencesRepository(private val context: Context) {
             prefs[Keys.DROPS_ON] = state.dropsOn
             prefs[Keys.FAST_SHIP] = state.fastShip
             prefs[Keys.SCROLL_MODE] = state.scrollMode.name
+            prefs[Keys.SCREEN_COUNT] = state.screenCount
             prefs[Keys.HOME_SCREEN_INDEX] = state.homeScreenIndex
             prefs[Keys.SCROLL_SPAN_DEG] = state.scrollSpanDeg
             prefs[Keys.SCROLL_REVERSE] = state.scrollReverse

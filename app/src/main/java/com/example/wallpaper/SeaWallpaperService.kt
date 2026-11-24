@@ -8,6 +8,7 @@ import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import com.example.data.PreferencesRepository
 import com.example.data.SavedPreferences
@@ -25,6 +26,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class SeaWallpaperService : WallpaperService() {
@@ -45,7 +47,20 @@ class SeaWallpaperService : WallpaperService() {
         )
         private var lastAppliedPrefs: SavedPreferences? = null
         private var detectedScreenCount = 0
-        private var lastXOffset = 0.0f
+        private var hasNativeLauncherScroll = false
+        private var firstNativeOffsetSeen: Float? = null
+        private var nativeOffset = 0.0f
+        private var virtualPage = 0
+        @Volatile
+        private var animatedOffset = 0.0
+        @Volatile
+        private var targetVirtualOffset = 0.0
+
+        private var surfaceWidth = 1080
+        private var downX = 0f
+        private var downY = 0f
+        private var swipeConsumed = false
+
         private var lastWeatherFetchMs = 0L
         private var weatherJob: Job? = null
         private var prefsJob: Job? = null
@@ -69,14 +84,20 @@ class SeaWallpaperService : WallpaperService() {
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
-            // Disable direct touch manipulation on the live wallpaper screen;
-            // all framing and settings are configured strictly inside Wallpaper Settings.
             setTouchEventsEnabled(false)
 
             prefsJob = engineScope.launch {
                 prefsRepo.preferencesFlow.collect { saved ->
                     applyPreferences(saved)
                 }
+            }
+        }
+
+        private fun effectivePageCount(): Int {
+            return if (detectedScreenCount >= 2) {
+                detectedScreenCount
+            } else {
+                currentState.screenCount.coerceIn(2, 9)
             }
         }
 
@@ -138,6 +159,7 @@ class SeaWallpaperService : WallpaperService() {
                     dropsOn = saved.dropsOn,
                     fastShip = saved.fastShip,
                     scrollMode = saved.scrollMode,
+                    screenCount = saved.screenCount,
                     homeScreenIndex = saved.homeScreenIndex,
                     scrollSpanDeg = saved.scrollSpanDeg,
                     scrollReverse = saved.scrollReverse,
@@ -153,6 +175,9 @@ class SeaWallpaperService : WallpaperService() {
                     gyroMode = gyroEnabled,
                     wind = saved.wind,
                     cloud = saved.cloud,
+                    cloudLow = saved.cloudLow,
+                    cloudMid = saved.cloudMid,
+                    cloudHigh = saved.cloudHigh,
                     rain = saved.rain,
                     fog = saved.fog,
                     storm = saved.storm,
@@ -170,11 +195,27 @@ class SeaWallpaperService : WallpaperService() {
                     dropsOn = saved.dropsOn,
                     fastShip = saved.fastShip,
                     scrollMode = saved.scrollMode,
+                    screenCount = saved.screenCount,
                     homeScreenIndex = saved.homeScreenIndex,
                     scrollSpanDeg = saved.scrollSpanDeg,
                     scrollReverse = saved.scrollReverse,
                 )
             }
+
+            val pages = effectivePageCount()
+            if (prev == null || prev.scrollMode != saved.scrollMode || prev.homeScreenIndex != saved.homeScreenIndex) {
+                virtualPage = (saved.homeScreenIndex - 1).coerceIn(0, pages - 1)
+                val homeFrac = if (pages > 1) virtualPage.toDouble() / (pages - 1).toDouble() else 0.0
+                targetVirtualOffset = homeFrac
+                if (prev == null) animatedOffset = homeFrac
+            } else {
+                virtualPage = virtualPage.coerceIn(0, pages - 1)
+                targetVirtualOffset = if (pages > 1) virtualPage.toDouble() / (pages - 1).toDouble() else 0.0
+            }
+
+            // Enable touch listener strictly to detect launcher page swipes in PANORAMA mode
+            // (needed on Samsung One UI and launchers that suppress onOffsetsChanged).
+            setTouchEventsEnabled(saved.scrollMode == WallpaperScrollMode.PANORAMA)
 
             renderer.pitD = currentState.camPitch
             updatePagePanning()
@@ -195,15 +236,32 @@ class SeaWallpaperService : WallpaperService() {
                 renderer.yawD = 0.0
                 return
             }
-            val effectivePages = if (detectedScreenCount >= 2) detectedScreenCount else 3
-            val clampedHome = currentState.homeScreenIndex.coerceIn(1, effectivePages)
-            val homeFraction = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
+            val pages = effectivePageCount()
+            val clampedHome = currentState.homeScreenIndex.coerceIn(1, pages)
+            val homeFraction = (clampedHome - 1).toDouble() / (pages - 1).toDouble()
+            val activeOffset = if (hasNativeLauncherScroll) {
+                nativeOffset.toDouble()
+            } else {
+                animatedOffset
+            }
             val signedSpan = if (currentState.scrollReverse) {
                 -currentState.scrollSpanDeg
             } else {
                 currentState.scrollSpanDeg
             }
-            renderer.yawD = (lastXOffset.toDouble() - homeFraction) * signedSpan
+            renderer.yawD = (activeOffset - homeFraction) * signedSpan
+        }
+
+        private fun stepBeforeFrame() {
+            if (currentState.scrollMode == WallpaperScrollMode.PANORAMA && !hasNativeLauncherScroll) {
+                val diff = targetVirtualOffset - animatedOffset
+                if (abs(diff) > 0.0005) {
+                    animatedOffset += diff * 0.22
+                } else {
+                    animatedOffset = targetVirtualOffset
+                }
+                updatePagePanning()
+            }
         }
 
         private fun startWeatherPolling() {
@@ -231,6 +289,9 @@ class SeaWallpaperService : WallpaperService() {
                     t = updatedHours,
                     wind = snap.wind,
                     cloud = snap.cloud,
+                    cloudLow = snap.cloudLow,
+                    cloudMid = snap.cloudMid,
+                    cloudHigh = snap.cloudHigh,
                     rain = snap.rain,
                     fog = snap.fog,
                     storm = snap.storm,
@@ -250,12 +311,14 @@ class SeaWallpaperService : WallpaperService() {
             val frame = holder.surfaceFrame
             val width = frame.width().coerceAtLeast(2)
             val height = frame.height().coerceAtLeast(2)
+            if (width > 2) surfaceWidth = width
             val thread = WallpaperGlThread(
                 surfaceHolder = holder,
                 initialWidth = width,
                 initialHeight = height,
                 renderer = renderer,
                 initialPaused = !isEngineVisible,
+                onBeforeFrame = ::stepBeforeFrame,
             )
             glThread = thread
             thread.start()
@@ -263,6 +326,7 @@ class SeaWallpaperService : WallpaperService() {
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
+            if (width > 2) surfaceWidth = width
             glThread?.onResize(width, height)
         }
 
@@ -298,24 +362,71 @@ class SeaWallpaperService : WallpaperService() {
             yPixelOffset: Int,
         ) {
             super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
-            lastXOffset = xOffset.coerceIn(0f, 1f)
+            val clamped = xOffset.coerceIn(0f, 1f)
+            nativeOffset = clamped
 
             if (!isPreview) {
+                val first = firstNativeOffsetSeen
+                if (first == null) {
+                    firstNativeOffsetSeen = clamped
+                } else if (abs(clamped - first) > 0.01f) {
+                    hasNativeLauncherScroll = true
+                }
+
                 val pages = when {
                     xOffsetStep > 0.001f && xOffsetStep < 0.99f ->
                         ((1.0f / xOffsetStep).roundToInt() + 1).coerceIn(2, 12)
                     xOffsetStep >= 0.99f -> 2
                     else -> null
                 }
-                if (pages != null && pages != detectedScreenCount) {
-                    detectedScreenCount = pages
-                    engineScope.launch {
-                        prefsRepo.setDetectedScreenCount(pages)
+                if (pages != null) {
+                    hasNativeLauncherScroll = true
+                    if (pages != detectedScreenCount) {
+                        detectedScreenCount = pages
+                        engineScope.launch {
+                            prefsRepo.setDetectedScreenCount(pages)
+                        }
                     }
                 }
             }
 
             updatePagePanning()
+        }
+
+        override fun onTouchEvent(event: MotionEvent) {
+            super.onTouchEvent(event)
+            if (currentState.scrollMode != WallpaperScrollMode.PANORAMA || hasNativeLauncherScroll) {
+                return
+            }
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    swipeConsumed = false
+                }
+                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (swipeConsumed) return
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    val threshold = if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                        (surfaceWidth * 0.045f).coerceAtLeast(40f)
+                    } else {
+                        (surfaceWidth * 0.14f).coerceAtLeast(90f)
+                    }
+                    val slopeRatio = if (event.actionMasked == MotionEvent.ACTION_CANCEL) 1.6f else 1.35f
+                    if (abs(dx) > threshold && abs(dx) > abs(dy) * slopeRatio) {
+                        swipeConsumed = true
+                        val pages = effectivePageCount()
+                        val deltaPage = if (dx < 0f) 1 else -1
+                        virtualPage = (virtualPage + deltaPage).coerceIn(0, pages - 1)
+                        targetVirtualOffset = if (pages > 1) {
+                            virtualPage.toDouble() / (pages - 1).toDouble()
+                        } else {
+                            0.0
+                        }
+                    }
+                }
+            }
         }
 
         override fun onDestroy() {
@@ -336,6 +447,7 @@ private class WallpaperGlThread(
     initialHeight: Int,
     private val renderer: SeaRenderer,
     initialPaused: Boolean,
+    private val onBeforeFrame: () -> Unit,
 ) : Thread("SeaWallpaperGlThread") {
 
     private val lock = Object()
@@ -345,6 +457,7 @@ private class WallpaperGlThread(
     private var width = initialWidth
     private var height = initialHeight
     private var sizeChanged = true
+    private var initialFramesRemaining = 2
 
     fun setPaused(value: Boolean) {
         synchronized(lock) {
@@ -359,6 +472,7 @@ private class WallpaperGlThread(
                 width = newWidth
                 height = newHeight
                 sizeChanged = true
+                if (initialFramesRemaining < 1) initialFramesRemaining = 1
                 lock.notifyAll()
             }
         }
@@ -448,7 +562,9 @@ private class WallpaperGlThread(
                 val curHeight: Int
                 val doResize: Boolean
                 synchronized(lock) {
-                    while (!shouldExit && paused) {
+                    // Always render initial frames before pausing so Lock Screen & preview surfaces
+                    // display the real sea/sky immediately even before onVisibilityChanged(true).
+                    while (!shouldExit && paused && initialFramesRemaining <= 0) {
                         try {
                             lock.wait()
                         } catch (_: InterruptedException) {
@@ -456,6 +572,9 @@ private class WallpaperGlThread(
                         }
                     }
                     if (shouldExit) return
+                    if (initialFramesRemaining > 0) {
+                        initialFramesRemaining--
+                    }
                     curWidth = width
                     curHeight = height
                     doResize = sizeChanged
@@ -466,6 +585,7 @@ private class WallpaperGlThread(
                     renderer.onSurfaceChanged(null, curWidth, curHeight)
                 }
 
+                onBeforeFrame()
                 renderer.onDrawFrame(null)
                 if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
                     val err = EGL14.eglGetError()

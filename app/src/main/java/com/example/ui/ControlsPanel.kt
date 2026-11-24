@@ -109,6 +109,7 @@ fun ControlsPanel(
     onToggleFastDay: (Boolean) -> Unit,
     onToggleFps: () -> Unit,
     onSelectScrollMode: (WallpaperScrollMode) -> Unit,
+    onScreenCountChanged: (Int) -> Unit,
     onSelectHomeScreen: (Int) -> Unit,
     onScrollSpanChanged: (Double) -> Unit,
     onToggleScrollReverse: (Boolean) -> Unit,
@@ -474,7 +475,11 @@ fun ControlsPanel(
             }
 
             if (s.scrollMode == WallpaperScrollMode.PANORAMA) {
-                val effectivePages = if (uiState.detectedScreenCount >= 2) uiState.detectedScreenCount else 3
+                val effectivePages = if (uiState.detectedScreenCount >= 2) {
+                    uiState.detectedScreenCount
+                } else {
+                    s.screenCount.coerceIn(2, 9)
+                }
                 val clampedHome = s.homeScreenIndex.coerceIn(1, effectivePages)
                 val detectedText = when {
                     uiState.detectedScreenCount >= 2 ->
@@ -482,7 +487,7 @@ fun ControlsPanel(
                     uiState.detectedScreenCount == 1 ->
                         "Активных экранов: 1 (добавьте ещё стол, чтобы листать панораму)"
                     else ->
-                        "Число экранов определится само после установки обоев (сейчас предпросмотр для 3)"
+                        "Оболочка скрывает число экранов — укажите вручную (сейчас $effectivePages)"
                 }
                 Text(
                     text = detectedText,
@@ -490,6 +495,27 @@ fun ControlsPanel(
                     color = SkyCyan,
                     modifier = Modifier.testTag("detected_screens_text"),
                 )
+
+                if (uiState.detectedScreenCount < 2) {
+                    Text(
+                        text = stringResource(R.string.label_screen_count),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SeaFoamInk.copy(alpha = 0.8f),
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        for (count in 2..6) {
+                            PresetChip(
+                                label = "$count",
+                                selected = s.screenCount.coerceIn(2, 9) == count,
+                                onClick = { onScreenCountChanged(count) },
+                                testTag = "screen_count_$count",
+                            )
+                        }
+                    }
+                }
 
                 Text(
                     text = stringResource(R.string.label_home_screen),

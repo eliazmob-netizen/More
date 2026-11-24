@@ -135,6 +135,9 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                         gyroMode = gyroEnabled,
                         wind = saved.wind,
                         cloud = saved.cloud,
+                        cloudLow = saved.cloudLow,
+                        cloudMid = saved.cloudMid,
+                        cloudHigh = saved.cloudHigh,
                         rain = saved.rain,
                         fog = saved.fog,
                         storm = saved.storm,
@@ -152,6 +155,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                         dropsOn = saved.dropsOn,
                         fastShip = saved.fastShip,
                         scrollMode = saved.scrollMode,
+                        screenCount = saved.screenCount,
                         homeScreenIndex = saved.homeScreenIndex,
                         scrollSpanDeg = saved.scrollSpanDeg,
                         scrollReverse = saved.scrollReverse,
@@ -416,6 +420,9 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                     t = updatedHours,
                     wind = snap.wind,
                     cloud = snap.cloud,
+                    cloudLow = snap.cloudLow,
+                    cloudMid = snap.cloudMid,
+                    cloudHigh = snap.cloudHigh,
                     rain = snap.rain,
                     fog = snap.fog,
                     storm = snap.storm,
@@ -425,7 +432,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 state.copy(
                     seaState = nextSea,
-                    sourceStatus = "Авто · Open-Meteo · ${"%.2f".format(nextSea.lat)}°, ${"%.2f".format(nextSea.lon)}° · ${snap.windSpeedKmh.toInt()} км/ч, облачность ${snap.cloudCoverPercent.toInt()}% · обновлено ${AtmosphereMath.formatHours(updatedHours)}",
+                    sourceStatus = "Авто · Open-Meteo · ${"%.2f".format(nextSea.lat)}°, ${"%.2f".format(nextSea.lon)}° · ${snap.windSpeedKmh.toInt()} км/ч, облачность ${snap.cloudCoverPercent.toInt()}% (слои ${(snap.cloudLow * 100).toInt()}/${(snap.cloudMid * 100).toInt()}/${(snap.cloudHigh * 100).toInt()}%) · обновлено ${AtmosphereMath.formatHours(updatedHours)}",
                 )
             }
             pushStateToRenderer()
@@ -527,6 +534,9 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                     fastDay = false,
                     wind = 0.3,
                     cloud = 0.5,
+                    cloudLow = 0.42,
+                    cloudMid = 0.48,
+                    cloudHigh = 0.35,
                     rain = 0.2,
                     fog = 0.0,
                     storm = 0.0,
@@ -546,11 +556,15 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onSelectWeatherPreset(preset: WeatherPreset) {
         switchToManual()
+        val (cLow, cMid, cHigh) = deriveCloudLayers(preset.cloud)
         _uiState.update {
             it.copy(
                 seaState = it.seaState.copy(
                     wind = preset.wind,
                     cloud = preset.cloud,
+                    cloudLow = cLow,
+                    cloudMid = cMid,
+                    cloudHigh = cHigh,
                     rain = preset.rain,
                     fog = preset.fog,
                     storm = preset.storm,
@@ -561,6 +575,13 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         }
         pushStateToRenderer()
         persistCurrentState(immediate = true)
+    }
+
+    private fun deriveCloudLayers(cloud: Double): Triple<Double, Double, Double> {
+        val low = AtmosphereMath.clamp(cloud * 0.85, 0.0, 1.0)
+        val mid = AtmosphereMath.clamp(cloud * 0.95, 0.0, 1.0)
+        val high = AtmosphereMath.clamp(cloud * 0.75 + 0.15 * (1.0 - cloud), 0.0, 1.0)
+        return Triple(low, mid, high)
     }
 
     fun onSelectTimePreset(preset: TimePreset) {
@@ -628,9 +649,15 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onCloudChanged(cloud: Double) {
         switchToManual()
+        val (cLow, cMid, cHigh) = deriveCloudLayers(cloud)
         _uiState.update {
             it.copy(
-                seaState = it.seaState.copy(cloud = cloud),
+                seaState = it.seaState.copy(
+                    cloud = cloud,
+                    cloudLow = cLow,
+                    cloudMid = cMid,
+                    cloudHigh = cHigh,
+                ),
                 activeWeatherPreset = null,
                 isRainbowActive = false,
             )
@@ -775,6 +802,22 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         persistCurrentState(immediate = true)
     }
 
+    fun onScreenCountChanged(count: Int) {
+        val clamped = count.coerceIn(2, 9)
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(
+                    screenCount = clamped,
+                    homeScreenIndex = it.seaState.homeScreenIndex.coerceIn(1, clamped),
+                ),
+                previewScreenIndex = null,
+            )
+        }
+        renderer.yawD = 0.0
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
     fun onScrollSpanChanged(deg: Double) {
         val clamped = deg.coerceIn(20.0, 180.0)
         _uiState.update {
@@ -804,7 +847,11 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             renderer.yawD = 0.0
             return
         }
-        val effectivePages = if (state.detectedScreenCount >= 2) state.detectedScreenCount else 3
+        val effectivePages = if (state.detectedScreenCount >= 2) {
+            state.detectedScreenCount
+        } else {
+            s.screenCount.coerceIn(2, 9)
+        }
         val clampedHome = s.homeScreenIndex.coerceIn(1, effectivePages)
         val clampedPreview = previewIndex.coerceIn(1, effectivePages)
         val homeFraction = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()

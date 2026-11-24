@@ -279,6 +279,7 @@ fun SeaScreen(
                 onToggleFastDay = viewModel::onToggleFastDay,
                 onToggleFps = viewModel::toggleFps,
                 onSelectScrollMode = viewModel::onSelectScrollMode,
+                onScreenCountChanged = viewModel::onScreenCountChanged,
                 onSelectHomeScreen = viewModel::onSelectHomeScreen,
                 onScrollSpanChanged = viewModel::onScrollSpanChanged,
                 onToggleScrollReverse = viewModel::onToggleScrollReverse,

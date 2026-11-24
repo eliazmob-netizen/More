@@ -16,7 +16,7 @@ precision mediump float;
 #endif
 uniform vec2 uRes,uTilt;
 uniform float uTime,uCloud,uWind,uRain,uFog,uFlash,uMoonPh,uMoonL,uStar,uWDir,uStarRot,uBow,uBolt,uShip,uNight;
-uniform vec3 uObj,uLook,uLH;uniform sampler2D uOv;
+uniform vec3 uObj,uLook,uLH,uCloudLayers;uniform sampler2D uOv;
 uniform vec3 uSun,uSunL,uSunD,uMoon,uAmb,uPole;
 uniform sampler2D uSky,uNrm;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
@@ -36,21 +36,48 @@ float starField(vec3 rd){
  return b*(.75+.25*sin(uTime*3.+h*60.));}
 float milky(vec3 rd){vec3 q=rotAxis(rd,uPole,uStarRot);float band=exp(-pow(dot(q,normalize(vec3(.46,.12,.88)))*5.,2.));
  return band*(.35+.65*fbm(q.xz*5.+q.y*3.))*.5;}
+vec3 skyBase(vec3 rd){
+ vec3 c=lut(rd);
+ float dayW=clamp((uSun.y+.04)/.20,0.,1.);
+ float ov=clamp((max(uCloud,uCloudLayers.y)-.25)*1.25,0.,1.)*dayW;
+ if(ov>.01){
+  float lum=max(dot(c,vec3(.30,.59,.11)),dot(uAmb,vec3(.33))*1.6+.14);
+  vec3 coolOv=vec3(.86,.91,.96)*lum*(.82+.32*smoothstep(0.,.65,rd.y));
+  coolOv*=1.-.42*uRain;
+  c=mix(c,coolOv,ov*.82);
+ }
+ return c;}
 vec4 clouds(vec3 rd){
  float m=smoothstep(0.,.07,rd.y);
  vec2 p=rd.xz/(rd.y+.18)*.55+vec2(uTime*.010*(.4+uWind),uTime*.004);
  float f1=fbm(p*1.4);
- float d=f1*.7+fbm(p*3.5+3.1)*.3;
- float thr=.72-uCloud*.62;
- float a=smoothstep(thr,thr+.17,d)*m;
- float d2=fbm((p+uSun.xz*.07)*1.4);
- float lit=clamp(.62+(f1-d2)*5.,0.,1.);
- float thick=clamp((d-thr)*3.,0.,1.);
- vec3 col=uAmb*(.9-.4*thick-.25*uCloud*smoothstep(.2,.9,rd.y))+uSunL*lit*(1.-.65*thick)*.75;
- col*=1.-.55*uRain;
+ float f2=fbm(p*3.3+3.1);
+ float midCov=max(uCloud*.88,uCloudLayers.y);
+ float lowCov=max(uCloud*.75,uCloudLayers.x);
+ float dMid=f1*.68+f2*.32;
+ float dLow=f1*.52+f2*.48;
+ float thrMid=.74-midCov*.66;
+ float thrLow=.78-lowCov*.62;
+ float aMid=smoothstep(thrMid,thrMid+.18,dMid);
+ float aLow=smoothstep(thrLow,thrLow+.15,dLow);
+ float a=clamp(max(aMid,aLow*1.05),0.,1.)*m;
+ float d2=fbm((p+uSun.xz*.06)*1.4);
+ float lit=clamp(.64+(f1-d2)*4.6,0.,1.);
+ float thick=clamp(max((dMid-thrMid)*2.2,(dLow-thrLow)*2.8),0.,1.);
+ float dayW=clamp((uSun.y+.03)/.20,0.,1.);
+ float sunLum=dot(uSunL,vec3(.30,.59,.11));
+ vec3 neutralSun=vec3(.96,.98,1.0)*max(sunLum,.35*dayW);
+ float sunsetWarmth=smoothstep(.38,.02,uSun.y)*(1.-smoothstep(.40,.80,uCloud));
+ vec3 cloudSun=mix(neutralSun,uSunL,sunsetWarmth);
+ float ambLum=dot(uAmb,vec3(.30,.59,.11));
+ vec3 neutralAmb=mix(uAmb,vec3(.78,.83,.90)*max(ambLum,.18*dayW),dayW*clamp(uCloud*1.35,0.,1.));
+ vec3 under=neutralAmb*(.95-.26*thick-.12*lowCov*smoothstep(.2,.9,rd.y));
+ vec3 topCol=mix(neutralAmb*1.08,cloudSun,.75)*lit*(1.-.42*thick);
+ vec3 col=mix(under,topCol,.42+.58*lit);
+ col*=1.-.50*uRain;
  return vec4(col,a);}
 vec3 sky(vec3 rd,bool disk){
- vec3 c=lut(rd);
+ vec3 c=skyBase(rd);
  float up=step(0.,rd.y);
  if(uStar>.01&&rd.y>0.){c+=vec3(.9,.95,1.)*starField(rd)*uStar*1.6+vec3(.5,.6,.9)*milky(rd)*uStar*.35;}
  if(uMoon.y>-.1){float R=.038;vec3 t1=normalize(cross(vec3(0.,1.,0.),uMoon));vec3 t2=cross(uMoon,t1);
@@ -63,8 +90,11 @@ vec3 sky(vec3 rd,bool disk){
    c+=vec3(.55,.65,.9)*uMoonL*.12*exp(-r2*.18);}}
  vec4 cl=clouds(rd);
  c=mix(c,cl.rgb,cl.a);
- float ci=fbm(vec2(rd.x*2.,rd.z*9.)/(rd.y+.35)+uTime*.01)*smoothstep(.05,.45,rd.y)*(1.-uCloud*.7)*.5;
- c=mix(c,uAmb*1.3+uSunL*.25,clamp((ci-.18)*1.3,0.,.4));
+ float highK=clamp(.35+uCloudLayers.z*1.1,0.,1.2);
+ float ci=fbm(vec2(rd.x*2.2,rd.z*8.5)/(rd.y+.35)+uTime*.01)*smoothstep(.04,.48,rd.y)*highK*.55;
+ float dayW=clamp((uSun.y+.03)/.20,0.,1.);
+ vec3 ciCol=mix(uAmb*1.25+uSunL*.22,vec3(.94,.96,1.)*max(dot(uAmb,vec3(.33))*1.5+.25,.35),dayW*clamp(uCloudLayers.z+uCloud*.5,0.,1.));
+ c=mix(c,ciCol,clamp((ci-.16)*1.35,0.,.46));
  if(disk){float s=smoothstep(.99989,.99996,dot(rd,uSun));c+=uSunD*s*(1.-cl.a)*(1.-uCloud*.75)*up;}
  {float sa=dot(rd,uSun);if(sa>.35&&uSun.y>-.04){vec3 t1=normalize(cross(vec3(0.,1.,0.),uSun));vec3 t2=cross(uSun,t1);
    float an=atan(dot(rd,t2),dot(rd,t1));float ray=fbm(vec2(an*6.,uTime*.02))*fbm(vec2(an*13.+4.,uTime*.03));
@@ -83,7 +113,7 @@ vec4 objects(vec3 rd,out vec3 glow){
  float ax=atan(rd.x,rd.z),ay=asin(clamp(rd.y,-1.,1.));float pa=1.3/(uRes.y*1.15);
  vec3 col=vec3(0.);float al=0.;glow=vec3(0.);
  float la=atan(uSun.x,uSun.z);
- vec3 hzc=lut(normalize(vec3(rd.x,.012,max(abs(rd.z),.1))));
+ vec3 hzc=skyBase(normalize(vec3(rd.x,.012,max(abs(rd.z),.1))));
  if(uObj.x>.5){float u=ax-uLH.x;
   if(abs(u)<.22&&ay<.16&&ay>-.03){
    float by=-.0025,h=.07,w0=.0072,w1=.0048;
@@ -150,13 +180,16 @@ vec3 sea(vec3 ro,vec3 rd){
  float crest=smoothstep(.50,1.0,h0*1.25+fs*.8-.25+uWind*.2);
  float ftex=smoothstep(.45,.75,n1.b)*smoothstep(.35,.7,n2.a);
  float foam=clamp(crest*smoothstep(.45,.9,uWind)*(.25+1.1*ftex)*(1.-clamp(t/600.,0.,1.)),0.,1.);
- vec3 foamC=(uAmb*1.8+uSunL*(.25+.5*max(dot(n,uSun),0.)))*.8;
+ float dayW2=clamp((uSun.y+.03)/.20,0.,1.);
+ float sunsetWarm2=smoothstep(.38,.02,uSun.y)*(1.-smoothstep(.40,.80,uCloud));
+ vec3 seaSun=mix(vec3(.95,.97,1.)*dot(uSunL,vec3(.30,.59,.11)),uSunL,sunsetWarm2);
+ vec3 foamC=(uAmb*1.8+mix(uSunL,seaSun,dayW2)*(.25+.5*max(dot(n,uSun),0.)))*.8;
  col=mix(col,foamC,foam*.8);
  float spray=foam*smoothstep(.5,1.,uWind);
  col+=foamC*step(1.-spray*.07,hash(floor(gl_FragCoord.xy*.6)+floor(uTime*28.)))*.9;
  col=mix(col,foamC*.9,smoothstep(.6,1.,uWind)*.18*exp(-t*.004));
  float fg=1.-exp(-t*(.0007+uFog*.014+uRain*.003));
- col=mix(col,lut(normalize(vec3(rd.x,.012,rd.z)))*(1.+uFog*.6),fg);
+ col=mix(col,skyBase(normalize(vec3(rd.x,.012,rd.z)))*(1.+uFog*.45),fg);
  return col;}
 float rainL(vec2 uv){float s=0.;
  for(int i=0;i<3;i++){float fi=float(i);float N=42.+fi*38.;vec2 q=vec2(uv.x+uv.y*.28*(.3+uWind),uv.y);
