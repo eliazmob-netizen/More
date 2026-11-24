@@ -1,0 +1,6 @@
+{
+  "name": "Море и небо",
+  "description": "Интерактивная 3D-сцена моря и неба с физической атмосферой, погодой онлайн, парусником, чайками, маяком и управлением гироскопом.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
