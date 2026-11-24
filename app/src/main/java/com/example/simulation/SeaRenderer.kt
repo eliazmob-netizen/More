@@ -77,7 +77,7 @@ class SeaRenderer(
     private var bench = 0
     private var ema = 33.0
     private var frameCount = 0
-    private var ovFrame = 0
+    private var ovClearedEmpty = false
 
     private var lastFrameStartMs = 0L
     private var lutUpdatedMs = -9000L
@@ -220,7 +220,7 @@ class SeaRenderer(
             GLES20.glUniform1i(u1.getValue("uNrm"), 3)
 
             ready = true
-            ovFrame = 0
+            ovClearedEmpty = false
             lastOvCam = null
             lastQualityRevision = -1L
             lastTimeRevision = -1L
@@ -368,8 +368,8 @@ class SeaRenderer(
         val rollWave = sin(now / 1000.0 * 0.45) * 0.04 * s.wind * s.wind * s.wind + roll * AtmosphereMath.D
 
         val hasOverlayObjects = (ship != null && s.shipOn && ship!!.z > 14.0) || s.birdsOn
-        if ((hasOverlayObjects && (++ovFrame % 2 == 0 || ovFrame < 3)) || ovFrame == 0) {
-            ovFrame = ovFrame.coerceAtLeast(1)
+        if (hasOverlayObjects || !ovClearedEmpty) {
+            ovClearedEmpty = !hasOverlayObjects
             val light = lightModel
             if (light != null) {
                 val bmp: Bitmap = overlayRenderer.render(
@@ -432,7 +432,12 @@ class SeaRenderer(
         GLES20.glUniform1f(u1.getValue("uNight"), p.night2.toFloat())
         GLES20.glUniform3fv(u1.getValue("uObj"), 1, p.obj, 0)
         GLES20.glUniform3f(u1.getValue("uLook"), pit.toFloat(), (roll * AtmosphereMath.D).toFloat(), 0f)
-        GLES20.glUniform2f(u1.getValue("uLH"), p.lh.toFloat(), 0f)
+        GLES20.glUniform3f(
+            u1.getValue("uLH"),
+            p.lh.toFloat(),
+            if (p.lhRotate) 1f else 0f,
+            p.lhFixedB.toFloat(),
+        )
         GLES20.glUniform3f(u1.getValue("uSun"), p.sun[0].toFloat(), p.sun[1].toFloat(), p.sun[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uSunL"), p.sunL[0].toFloat(), p.sunL[1].toFloat(), p.sunL[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uSunD"), p.sunD[0].toFloat(), p.sunD[1].toFloat(), p.sunD[2].toFloat())

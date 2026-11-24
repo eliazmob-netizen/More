@@ -16,7 +16,7 @@ precision mediump float;
 #endif
 uniform vec2 uRes,uTilt;
 uniform float uTime,uCloud,uWind,uRain,uFog,uFlash,uMoonPh,uMoonL,uStar,uWDir,uStarRot,uBow,uBolt,uShip,uNight;
-uniform vec3 uObj,uLook;uniform vec2 uLH;uniform sampler2D uOv;
+uniform vec3 uObj,uLook,uLH;uniform sampler2D uOv;
 uniform vec3 uSun,uSunL,uSunD,uMoon,uAmb,uPole;
 uniform sampler2D uSky,uNrm;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
@@ -105,11 +105,20 @@ vec4 objects(vec3 rd,out vec3 glow){
    col=mix(col,hzc*(1.+.3*uFog),.42);}
   if(uNight>.01){float u2=ax-uLH.x,ayl=-.0025+.007+.07*1.07,dy=ay-ayl;
    glow+=vec3(1.,.8,.5)*exp(-(u2*u2+dy*dy)/(.0085*.0085))*uNight*5.;
-   for(int i=0;i<2;i++){float b=uTime*.7+float(i)*3.14159;float d=cos(b),sn=sin(b);
+   if(uLH.y>.5){
+    for(int i=0;i<2;i++){float b=uTime*.7+float(i)*3.14159;float d=cos(b),sn=sin(b);
+     float along=u2/(d*.7+(d<0.?-.03:.03));float vis=smoothstep(-.4,.2,sn)*step(0.,along)*step(along,1.2);
+     float wd=.004+.012*along*along;glow+=vec3(1.,.9,.65)*vis*exp(-pow(dy/wd,2.))*(1.-along*.8)*uNight*1.2;}
+    float fl=pow(max(sin(uTime*.7),0.),24.)+pow(max(-sin(uTime*.7),0.),24.);
+    glow+=vec3(1.,.85,.6)*exp(-(u2*u2+dy*dy)/(.03*.03))*fl*uNight*4.;
+   }else{
+    float b=uLH.z;float d=cos(b),sn=sin(b);
     float along=u2/(d*.7+(d<0.?-.03:.03));float vis=smoothstep(-.4,.2,sn)*step(0.,along)*step(along,1.2);
-    float wd=.004+.012*along*along;glow+=vec3(1.,.9,.65)*vis*exp(-pow(dy/wd,2.))*(1.-along*.8)*uNight*1.2;}
-   float fl=pow(max(sin(uTime*.7),0.),24.)+pow(max(-sin(uTime*.7),0.),24.);
-   glow+=vec3(1.,.85,.6)*exp(-(u2*u2+dy*dy)/(.03*.03))*fl*uNight*4.;}}
+    float wd=.004+.012*along*along;glow+=vec3(1.,.9,.65)*vis*exp(-pow(dy/wd,2.))*(1.-along*.8)*uNight*1.35;
+    float fl=pow(max(sn,0.),24.);
+    glow+=vec3(1.,.85,.6)*exp(-(u2*u2+dy*dy)/(.03*.03))*fl*uNight*4.;
+   }}
+ }
  return vec4(col,al);}
 float swell(vec2 p,out vec2 gr){float h=0.;gr=vec2(0.);float S=.04+.24*uWind;
  for(int i=0;i<6;i++){float fi=float(i);float k=.2*pow(1.5,fi);float ang=uWDir+sin(fi*5.31)*.85;vec2 d=vec2(cos(ang),sin(ang));

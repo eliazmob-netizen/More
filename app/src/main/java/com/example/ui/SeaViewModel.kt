@@ -133,6 +133,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                         t = if (saved.realTime) AtmosphereMath.hoursNow(null) else saved.manualTimeHours,
                         doy = AtmosphereMath.doyNow(),
                         lhOn = saved.lhOn,
+                        lhRotate = saved.lhRotate,
                         shipOn = saved.shipOn,
                         birdsOn = saved.birdsOn,
                         dropsOn = saved.dropsOn,
@@ -562,6 +563,12 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onToggleLh(enabled: Boolean) {
         _uiState.update { it.copy(seaState = it.seaState.copy(lhOn = enabled)) }
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
+    fun onToggleLhRotate(enabled: Boolean) {
+        _uiState.update { it.copy(seaState = it.seaState.copy(lhRotate = enabled)) }
         pushStateToRenderer()
         persistCurrentState(immediate = true)
     }

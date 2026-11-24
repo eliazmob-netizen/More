@@ -93,6 +93,7 @@ fun ControlsPanel(
     onFogChanged: (Double) -> Unit,
     onCamChanged: (Double) -> Unit,
     onToggleLh: (Boolean) -> Unit,
+    onToggleLhRotate: (Boolean) -> Unit,
     onToggleShip: (Boolean) -> Unit,
     onToggleBirds: (Boolean) -> Unit,
     onToggleDrops: (Boolean) -> Unit,
@@ -330,6 +331,17 @@ fun ControlsPanel(
                     onCheckedChange = onToggleLh,
                     testTag = "toggle_lighthouse",
                 )
+                if (s.lhOn) {
+                    ToggleChip(
+                        label = stringResource(
+                            if (s.lhRotate) R.string.toggle_lighthouse_rotate
+                            else R.string.toggle_lighthouse_fixed,
+                        ),
+                        checked = s.lhRotate,
+                        onCheckedChange = onToggleLhRotate,
+                        testTag = "toggle_lighthouse_rotate",
+                    )
+                }
                 ToggleChip(
                     label = stringResource(R.string.toggle_ship),
                     icon = Icons.Rounded.Sailing,

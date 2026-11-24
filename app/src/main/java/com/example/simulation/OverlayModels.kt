@@ -79,78 +79,101 @@ class GullState(
         val nz = x * s + z * c
         x = nx
         z = nz
-        psi -= d
+        val ntx = tx * c - tz * s
+        val ntz = tx * s + tz * c
+        tx = ntx
+        tz = ntz
+        psi = wrapRad(psi - d)
     }
 
     fun step(dt: Double) {
         mt -= dt
         if (mt <= 0.0) {
             if (mode == GullMode.FLAP) {
-                mode = if (Random.nextDouble() < 0.55) GullMode.GLIDE else GullMode.SOAR
-                mt = 2.5 + Random.nextDouble() * 5.0
+                mode = if (Random.nextDouble() < 0.62) GullMode.GLIDE else GullMode.SOAR
+                mt = 3.5 + Random.nextDouble() * 4.5
                 circ = if (Random.nextDouble() < 0.5) 1.0 else -1.0
             } else {
                 mode = GullMode.FLAP
-                mt = 2.5 + Random.nextDouble() * 5.0
+                mt = 2.2 + Random.nextDouble() * 2.8
             }
         }
         val dx = tx - x
         val dz = tz - z
-        if (hypot(dx, dz) < 9.0 || z < 14.0) pickTarget()
+        if (hypot(dx, dz) < 14.0 || z < 15.0) pickTarget()
         var da = wrapRad(atan2(dx, dz) - psi)
-        if (mode == GullMode.SOAR) da = 0.55 * circ
-        val targetTurn = max(-0.75, min(0.75, da * 1.1))
-        turn += (targetTurn - turn) * min(1.0, dt * 1.8)
-        psi += turn * dt
+        if (mode == GullMode.SOAR) {
+            da = 0.28 * circ
+        }
+        val targetTurn = max(-0.46, min(0.46, da * 0.72))
+        turn += (targetTurn - turn) * min(1.0, dt * 1.15)
+        psi = wrapRad(psi + turn * dt)
+
+        val downstrokeSurge = if (mode == GullMode.FLAP) 0.4 * a * max(0.0, -sin(fl)) else 0.0
         val vt = when (mode) {
-            GullMode.FLAP -> 9.5
-            GullMode.GLIDE -> 8.0
-            GullMode.SOAR -> 6.3
+            GullMode.FLAP -> 8.6 + downstrokeSurge
+            GullMode.GLIDE -> 7.8
+            GullMode.SOAR -> 6.8
         }
-        v += (vt - v) * dt * 0.5
+        v += (vt - v) * min(1.0, dt * 0.75)
+
         val climbBias = when (mode) {
-            GullMode.SOAR -> 0.5
-            GullMode.FLAP -> 0.3
-            GullMode.GLIDE -> -0.55
+            GullMode.SOAR -> 0.22
+            GullMode.FLAP -> 0.24
+            GullMode.GLIDE -> -0.32
         }
-        val climb = max(-3.0, min(3.0, (ty - y) * 0.12)) + climbBias
-        th += (max(-0.3, min(0.3, climb / v)) - th) * dt * 1.4
-        x += sin(psi) * v * dt * cos(th)
-        z += cos(psi) * v * dt * cos(th)
-        y = max(-3.6, y + sin(th) * v * dt)
-        ph += (max(-0.9, min(0.9, turn * 1.15)) - ph) * min(1.0, dt * 2.5)
-        val f = if (mode == GullMode.FLAP) 3.0 + 0.5 * sin(fl * 0.13 + sc * 7.0) else 0.0
-        fl += f * 6.2832 * dt
+        val climb = max(-2.2, min(2.2, (ty - y) * 0.09)) + climbBias
+        val targetTh = max(-0.24, min(0.24, climb / max(1.0, v)))
+        th += (targetTh - th) * min(1.0, dt * 1.05)
+
+        val cosTh = cos(th)
+        x += sin(psi) * v * dt * cosTh
+        z += cos(psi) * v * dt * cosTh
+        y = max(-3.2, y + sin(th) * v * dt)
+
+        val targetRoll = max(-0.68, min(0.68, turn * 1.38))
+        ph += (targetRoll - ph) * min(1.0, dt * 1.85)
+
         val targetA = if (mode == GullMode.FLAP) 1.0 else 0.0
-        a += (targetA - a) * min(1.0, dt * 2.5)
+        a += (targetA - a) * min(1.0, dt * 1.85)
+
+        val baseFreq = 1.92 + 0.22 * sin(sc * 9.0) + 0.14 * max(0.0, th)
+        if (a > 0.03) {
+            // Keep advancing smoothly while amplitude fades so wings never freeze mid-stroke
+            val activeFreq = baseFreq * (0.35 + 0.65 * a)
+            fl += activeFreq * 6.2831853 * dt
+        } else {
+            // Gently settle phase toward neutral glide arch
+            fl += wrapRad(0.2 - wrapRad(fl)) * min(1.0, dt * 1.5)
+        }
     }
 
     fun pickTarget() {
-        val zt = 20.0 + Random.nextDouble() * 70.0
+        val zt = 24.0 + Random.nextDouble() * 64.0
         tz = zt
-        tx = (Random.nextDouble() * 2.0 - 1.0) * zt * 0.8
-        ty = -2.0 + Random.nextDouble() * (0.3 * zt + 2.0)
+        tx = (Random.nextDouble() * 2.0 - 1.0) * zt * 0.78
+        ty = -1.2 + Random.nextDouble() * (0.24 * zt + 2.2)
     }
 
     companion object {
         fun spawn(): GullState {
-            val z = 22.0 + Random.nextDouble() * 50.0
+            val z = 24.0 + Random.nextDouble() * 52.0
             return GullState(
                 x = (Random.nextDouble() * 2.0 - 1.0) * z * 0.7,
-                y = -2.0 + Random.nextDouble() * (0.3 * z + 2.0),
+                y = -1.2 + Random.nextDouble() * (0.24 * z + 2.0),
                 z = z,
                 psi = Random.nextDouble() * 6.28,
                 th = 0.0,
                 ph = 0.0,
-                v = 8.0,
+                v = 7.8,
                 fl = Random.nextDouble() * 6.28,
                 a = 1.0,
-                mode = GullMode.FLAP,
-                mt = 1.0 + Random.nextDouble() * 3.0,
+                mode = if (Random.nextDouble() < 0.55) GullMode.FLAP else GullMode.GLIDE,
+                mt = 1.5 + Random.nextDouble() * 3.5,
                 tx = 0.0,
                 ty = 0.0,
                 tz = 0.0,
-                sc = 0.88 + Random.nextDouble() * 0.3,
+                sc = 0.88 + Random.nextDouble() * 0.28,
                 turn = 0.0,
                 circ = if (Random.nextDouble() < 0.5) 1.0 else -1.0,
             ).apply { pickTarget() }

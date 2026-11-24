@@ -14,6 +14,8 @@
     <string name="label_fog">Туман</string>
     <string name="label_look">Взгляд</string>
     <string name="toggle_lighthouse">Маяк</string>
+    <string name="toggle_lighthouse_rotate">Маяк: крутится</string>
+    <string name="toggle_lighthouse_fixed">Маяк: в одну сторону</string>
     <string name="toggle_ship">Корабль</string>
     <string name="toggle_birds">Чайки</string>
     <string name="toggle_drops">Капли на экране</string>

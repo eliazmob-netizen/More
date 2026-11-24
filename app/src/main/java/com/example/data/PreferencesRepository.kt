@@ -30,6 +30,7 @@ data class SavedPreferences(
     val fastDay: Boolean = false,
     val manualTimeHours: Double = 12.0,
     val lhOn: Boolean = true,
+    val lhRotate: Boolean = true,
     val shipOn: Boolean = true,
     val birdsOn: Boolean = true,
     val dropsOn: Boolean = true,
@@ -54,6 +55,7 @@ class PreferencesRepository(private val context: Context) {
         val FAST_DAY = booleanPreferencesKey("sea_fast_day")
         val MANUAL_TIME = doublePreferencesKey("sea_manual_time")
         val LH_ON = booleanPreferencesKey("sea_lh_on")
+        val LH_ROTATE = booleanPreferencesKey("sea_lh_rotate")
         val SHIP_ON = booleanPreferencesKey("sea_ship_on")
         val BIRDS_ON = booleanPreferencesKey("sea_birds_on")
         val DROPS_ON = booleanPreferencesKey("sea_drops_on")
@@ -81,6 +83,7 @@ class PreferencesRepository(private val context: Context) {
             fastDay = prefs[Keys.FAST_DAY] ?: false,
             manualTimeHours = prefs[Keys.MANUAL_TIME] ?: 12.0,
             lhOn = prefs[Keys.LH_ON] ?: true,
+            lhRotate = prefs[Keys.LH_ROTATE] ?: true,
             shipOn = prefs[Keys.SHIP_ON] ?: true,
             birdsOn = prefs[Keys.BIRDS_ON] ?: true,
             dropsOn = prefs[Keys.DROPS_ON] ?: true,
@@ -121,6 +124,7 @@ class PreferencesRepository(private val context: Context) {
             prefs[Keys.FAST_DAY] = state.fastDay
             prefs[Keys.MANUAL_TIME] = state.t
             prefs[Keys.LH_ON] = state.lhOn
+            prefs[Keys.LH_ROTATE] = state.lhRotate
             prefs[Keys.SHIP_ON] = state.shipOn
             prefs[Keys.BIRDS_ON] = state.birdsOn
             prefs[Keys.DROPS_ON] = state.dropsOn

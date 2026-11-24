@@ -289,11 +289,14 @@ object AtmosphereMath {
             (1.0 - clamp((s.cloud - 0.6) * 3.0, 0.0, 1.0))
 
         val lh = (((268.0 - camE + 540.0) % 360.0 + 360.0) % 360.0 - 180.0) * D
+        val lhFixedB = (((138.0 - camE - 90.0 + 540.0) % 360.0 + 360.0) % 360.0 - 180.0) * D
         val ship = s.shipRel ?: ((((nowMs / 1000.0 * 0.25) % 360.0 - camE + 540.0) % 360.0 + 360.0) % 360.0 - 180.0) * D
 
         return FrameParams(
             bow = bow,
             lh = lh,
+            lhRotate = s.lhRotate,
+            lhFixedB = lhFixedB,
             ship = ship,
             night2 = clamp((-elDeg - 1.0) / 6.0, 0.0, 1.0),
             obj = floatArrayOf(

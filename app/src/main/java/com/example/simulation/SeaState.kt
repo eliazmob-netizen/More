@@ -61,6 +61,7 @@ data class SeaState(
     val doy: Int = 1,
     val bolt: Double = 0.5,
     val lhOn: Boolean = true,
+    val lhRotate: Boolean = true,
     val shipOn: Boolean = true,
     val birdsOn: Boolean = true,
     val dropsOn: Boolean = true,
@@ -79,6 +80,8 @@ data class SeaState(
 data class FrameParams(
     val bow: Double,
     val lh: Double,
+    val lhRotate: Boolean = true,
+    val lhFixedB: Double = 0.0,
     val ship: Double,
     val night2: Double,
     val obj: FloatArray,

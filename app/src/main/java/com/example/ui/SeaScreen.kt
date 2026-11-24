@@ -268,6 +268,7 @@ fun SeaScreen(
                 onFogChanged = viewModel::onFogChanged,
                 onCamChanged = viewModel::onCamChanged,
                 onToggleLh = viewModel::onToggleLh,
+                onToggleLhRotate = viewModel::onToggleLhRotate,
                 onToggleShip = viewModel::onToggleShip,
                 onToggleBirds = viewModel::onToggleBirds,
                 onToggleDrops = viewModel::onToggleDrops,
