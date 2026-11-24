@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.WaterDrop
@@ -110,10 +111,13 @@ fun ControlsPanel(
     onToggleFps: () -> Unit,
     onSelectScrollMode: (WallpaperScrollMode) -> Unit,
     onScreenCountChanged: (Int) -> Unit,
+    onApplyDetectedScreenCount: () -> Unit,
     onSelectHomeScreen: (Int) -> Unit,
+    onStartFramingHomeCenter: () -> Unit,
     onScrollSpanChanged: (Double) -> Unit,
     onToggleScrollReverse: (Boolean) -> Unit,
     onPreviewScreen: (Int?) -> Unit,
+    onSelectTimeOnlyMode: () -> Unit,
     onCityQueryChanged: (String) -> Unit,
     onSearchCity: () -> Unit,
     onQualityChanged: (QualityMode) -> Unit,
@@ -150,6 +154,13 @@ fun ControlsPanel(
                     selected = s.autoMode,
                     onClick = onToggleAuto,
                     testTag = "auto_button",
+                )
+                ActionPillChip(
+                    label = stringResource(R.string.action_time_only),
+                    icon = Icons.Rounded.Schedule,
+                    selected = !s.autoMode && s.realTime && !s.fastDay,
+                    onClick = onSelectTimeOnlyMode,
+                    testTag = "time_only_button",
                 )
                 ActionPillChip(
                     label = stringResource(R.string.action_gyro),
@@ -475,52 +486,40 @@ fun ControlsPanel(
             }
 
             if (s.scrollMode == WallpaperScrollMode.PANORAMA) {
-                val effectivePages = if (uiState.detectedScreenCount >= 2) {
-                    uiState.detectedScreenCount
-                } else {
-                    s.screenCount.coerceIn(2, 9)
-                }
+                val effectivePages = s.screenCount.coerceIn(2, 9)
                 val clampedHome = s.homeScreenIndex.coerceIn(1, effectivePages)
-                val detectedText = when {
-                    uiState.detectedScreenCount >= 2 ->
-                        "Активных экранов рабочего стола: ${uiState.detectedScreenCount}"
-                    uiState.detectedScreenCount == 1 ->
-                        "Активных экранов: 1 (добавьте ещё стол, чтобы листать панораму)"
-                    else ->
-                        "Оболочка скрывает число экранов — укажите вручную (сейчас $effectivePages)"
-                }
-                Text(
-                    text = detectedText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SkyCyan,
-                    modifier = Modifier.testTag("detected_screens_text"),
-                )
 
-                if (uiState.detectedScreenCount < 2) {
-                    Text(
-                        text = stringResource(R.string.label_screen_count),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = SeaFoamInk.copy(alpha = 0.8f),
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        for (count in 2..6) {
-                            PresetChip(
-                                label = "$count",
-                                selected = s.screenCount.coerceIn(2, 9) == count,
-                                onClick = { onScreenCountChanged(count) },
-                                testTag = "screen_count_$count",
-                            )
-                        }
+                Text(
+                    text = stringResource(R.string.label_screen_count),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SeaFoamInk.copy(alpha = 0.85f),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (count in 2..7) {
+                        PresetChip(
+                            label = "$count",
+                            selected = effectivePages == count,
+                            onClick = { onScreenCountChanged(count) },
+                            testTag = "screen_count_$count",
+                        )
+                    }
+                    if (uiState.detectedScreenCount >= 2 && uiState.detectedScreenCount != effectivePages) {
+                        PresetChip(
+                            label = "Оболочка: ${uiState.detectedScreenCount}",
+                            selected = false,
+                            onClick = onApplyDetectedScreenCount,
+                            testTag = "apply_detected_screen_count",
+                        )
                     }
                 }
 
                 Text(
                     text = stringResource(R.string.label_home_screen),
                     style = MaterialTheme.typography.labelSmall,
-                    color = SeaFoamInk.copy(alpha = 0.8f),
+                    color = SeaFoamInk.copy(alpha = 0.85f),
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -528,10 +527,89 @@ fun ControlsPanel(
                 ) {
                     for (idx in 1..effectivePages) {
                         PresetChip(
-                            label = if (idx == clampedHome) "$idx (главный)" else "$idx",
+                            label = if (idx == clampedHome) "$idx (центр)" else "$idx",
                             selected = idx == clampedHome,
                             onClick = { onSelectHomeScreen(idx) },
                             testTag = "home_screen_$idx",
+                        )
+                    }
+                }
+
+                Text(
+                    text = stringResource(R.string.label_center_frame),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SeaFoamInk.copy(alpha = 0.85f),
+                )
+                Button(
+                    onClick = onStartFramingHomeCenter,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OceanBlue,
+                        contentColor = Color.White,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("start_framing_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.TouchApp,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "${stringResource(R.string.action_pick_frame)} (${s.cam.roundToInt()}°)",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    PresetChip(
+                        label = stringResource(R.string.action_frame_all_day),
+                        selected = false,
+                        onClick = onFrameAllDay,
+                        testTag = "panorama_center_day",
+                    )
+                    PresetChip(
+                        label = stringResource(R.string.action_frame_all_night),
+                        selected = false,
+                        onClick = onFrameAllNight,
+                        testTag = "panorama_center_night",
+                    )
+                    PresetChip(
+                        label = "Радуга",
+                        selected = uiState.isRainbowActive,
+                        onClick = onSelectRainbow,
+                        testTag = "panorama_center_rainbow",
+                    )
+                }
+
+                Text(
+                    text = stringResource(R.string.label_preview_screen),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SeaFoamInk.copy(alpha = 0.85f),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val activePreview = uiState.previewScreenIndex ?: clampedHome
+                    for (idx in 1..effectivePages) {
+                        val homeFrac = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
+                        val idxFrac = (idx - 1).toDouble() / (effectivePages - 1).toDouble()
+                        val signedSpan = if (s.scrollReverse) -s.scrollSpanDeg else s.scrollSpanDeg
+                        val angleDeg = ((s.cam + (idxFrac - homeFrac) * signedSpan) % 360.0 + 360.0) % 360.0
+                        PresetChip(
+                            label = if (idx == clampedHome) "$idx центр (${angleDeg.roundToInt()}°)" else "$idx (${angleDeg.roundToInt()}°)",
+                            selected = activePreview == idx,
+                            onClick = {
+                                onPreviewScreen(if (idx == clampedHome) null else idx)
+                            },
+                            testTag = "preview_screen_$idx",
                         )
                     }
                 }
@@ -558,32 +636,6 @@ fun ControlsPanel(
                         onCheckedChange = onToggleScrollReverse,
                         testTag = "toggle_scroll_reverse",
                     )
-                }
-
-                Text(
-                    text = stringResource(R.string.label_preview_screen),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SeaFoamInk.copy(alpha = 0.8f),
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    val activePreview = uiState.previewScreenIndex ?: clampedHome
-                    for (idx in 1..effectivePages) {
-                        val homeFrac = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
-                        val idxFrac = (idx - 1).toDouble() / (effectivePages - 1).toDouble()
-                        val signedSpan = if (s.scrollReverse) -s.scrollSpanDeg else s.scrollSpanDeg
-                        val angleDeg = ((s.cam + (idxFrac - homeFrac) * signedSpan) % 360.0 + 360.0) % 360.0
-                        PresetChip(
-                            label = "$idx (${angleDeg.roundToInt()}°)",
-                            selected = activePreview == idx,
-                            onClick = {
-                                onPreviewScreen(if (idx == clampedHome) null else idx)
-                            },
-                            testTag = "preview_screen_$idx",
-                        )
-                    }
                 }
             }
 

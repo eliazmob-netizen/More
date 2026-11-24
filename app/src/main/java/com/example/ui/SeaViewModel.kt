@@ -46,6 +46,7 @@ data class SeaUiState(
     val isSearchingCity: Boolean = false,
     val detectedScreenCount: Int = 0,
     val previewScreenIndex: Int? = null,
+    val isFramingHomeCenter: Boolean = false,
 )
 
 class SeaViewModel(application: Application) : AndroidViewModel(application) {
@@ -59,6 +60,8 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     private var autoJob: Job? = null
     private var persistJob: Job? = null
     private var lastUiTimeSyncMs = 0L
+    private var framingBackupCam: Double? = null
+    private var framingBackupPitch: Double? = null
 
     private val _uiState = MutableStateFlow(
         SeaUiState(
@@ -193,6 +196,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onResume() {
+        renderer.forceImmediateAtmosphereRefresh()
         if (_uiState.value.seaState.gyroMode) {
             orientationController.start()
         }
@@ -238,7 +242,9 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
-        persistCurrentState(immediate = false)
+        if (!_uiState.value.isFramingHomeCenter) {
+            persistCurrentState(immediate = false)
+        }
     }
 
     fun onDoubleTapResetLook() {
@@ -251,7 +257,69 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        if (!_uiState.value.isFramingHomeCenter) {
+            persistCurrentState(immediate = true)
+        }
+    }
+
+    fun onStartFramingHomeCenter() {
+        val s = _uiState.value.seaState
+        framingBackupCam = s.cam
+        framingBackupPitch = s.camPitch
+        renderer.yawD = 0.0
+        renderer.pitD = s.camPitch
+        _uiState.update {
+            it.copy(
+                isFramingHomeCenter = true,
+                isControlsOpen = false,
+                previewScreenIndex = null,
+            )
+        }
+    }
+
+    fun onSaveHomeCenterFrame() {
+        framingBackupCam = null
+        framingBackupPitch = null
+        renderer.yawD = 0.0
+        _uiState.update {
+            val s = it.seaState
+            val pages = s.screenCount.coerceIn(2, 9)
+            val home = s.homeScreenIndex.coerceIn(1, pages)
+            it.copy(
+                isFramingHomeCenter = false,
+                isControlsOpen = true,
+                previewScreenIndex = null,
+                statusMessage = appContext.getString(R.string.status_home_frame_saved, s.cam.toInt(), home),
+            )
+        }
+        pushStateToRenderer()
         persistCurrentState(immediate = true)
+    }
+
+    fun onCancelFramingHomeCenter() {
+        val backupCam = framingBackupCam
+        val backupPitch = framingBackupPitch
+        framingBackupCam = null
+        framingBackupPitch = null
+        renderer.yawD = 0.0
+        if (backupPitch != null) {
+            renderer.pitD = backupPitch
+        }
+        _uiState.update {
+            val s = it.seaState
+            it.copy(
+                seaState = if (backupCam != null && backupPitch != null) {
+                    val nextWindDir = ((s.windDir - s.cam + backupCam) % 360.0 + 360.0) % 360.0
+                    s.copy(cam = backupCam, camPitch = backupPitch, windDir = nextWindDir)
+                } else {
+                    s
+                },
+                isFramingHomeCenter = false,
+                isControlsOpen = true,
+                previewScreenIndex = null,
+            )
+        }
+        pushStateToRenderer()
     }
 
     fun onToggleGyro() {
@@ -746,15 +814,48 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         persistCurrentState(immediate = true)
     }
 
-    fun onToggleRealTime(enabled: Boolean) {
+    fun onSelectTimeOnlyMode() {
+        val s = _uiState.value.seaState
+        val alreadyTimeOnly = !s.autoMode && s.realTime && !s.fastDay
+        if (alreadyTimeOnly) {
+            onToggleRealTime(false)
+            return
+        }
+        autoJob?.cancel()
+        autoJob = null
+        viewModelScope.launch { prefsRepo.setAutoMode(false) }
         timeRevision++
         _uiState.update {
             it.copy(
                 seaState = it.seaState.copy(
+                    autoMode = false,
+                    realTime = true,
+                    fastDay = false,
+                ),
+                activeTimePreset = null,
+                sourceStatus = appContext.getString(R.string.status_time_only),
+            )
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
+    fun onToggleRealTime(enabled: Boolean) {
+        if (enabled) {
+            autoJob?.cancel()
+            autoJob = null
+            viewModelScope.launch { prefsRepo.setAutoMode(false) }
+        }
+        timeRevision++
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(
+                    autoMode = if (enabled) false else it.seaState.autoMode,
                     realTime = enabled,
                     fastDay = if (enabled) false else it.seaState.fastDay,
                 ),
                 activeTimePreset = null,
+                sourceStatus = if (enabled) appContext.getString(R.string.status_time_only) else "",
             )
         }
         pushStateToRenderer()
@@ -840,6 +941,13 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         updatePreviewOffset(index)
     }
 
+    fun onApplyDetectedScreenCount() {
+        val detected = _uiState.value.detectedScreenCount
+        if (detected >= 2) {
+            onScreenCountChanged(detected)
+        }
+    }
+
     private fun updatePreviewOffset(previewIndex: Int?) {
         val state = _uiState.value
         val s = state.seaState
@@ -847,17 +955,14 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             renderer.yawD = 0.0
             return
         }
-        val effectivePages = if (state.detectedScreenCount >= 2) {
-            state.detectedScreenCount
-        } else {
-            s.screenCount.coerceIn(2, 9)
-        }
+        val effectivePages = s.screenCount.coerceIn(2, 9)
         val clampedHome = s.homeScreenIndex.coerceIn(1, effectivePages)
         val clampedPreview = previewIndex.coerceIn(1, effectivePages)
         val homeFraction = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
         val targetFraction = (clampedPreview - 1).toDouble() / (effectivePages - 1).toDouble()
         val signedSpan = if (s.scrollReverse) -s.scrollSpanDeg else s.scrollSpanDeg
-        renderer.yawD = (targetFraction - homeFraction) * signedSpan
+        val yaw = (targetFraction - homeFraction) * signedSpan
+        renderer.yawD = if (yaw.isFinite()) yaw else 0.0
     }
 
     fun onQualityChanged(mode: QualityMode) {

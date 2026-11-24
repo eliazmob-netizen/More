@@ -124,6 +124,12 @@ class SeaRenderer(
         pitD = 0.0
     }
 
+    fun forceImmediateAtmosphereRefresh() {
+        dirtyLut.set(true)
+        lutUpdatedMs = -9000L
+        lastTimeRevision = -1L
+    }
+
     fun reportExternalError(message: String) {
         ready = false
         onError(message)
@@ -301,7 +307,10 @@ class SeaRenderer(
             simHours = AtmosphereMath.hoursNow(s.utcOffsetSeconds)
         }
 
-        val camEff = ((s.cam + yawG + yawD) % 360.0 + 720.0) % 360.0
+        val safeYawG = if (yawG.isFinite()) yawG else 0.0
+        val safeYawD = if (yawD.isFinite()) yawD else 0.0
+        val safeCam = if (s.cam.isFinite()) s.cam else 250.0
+        val camEff = ((safeCam + safeYawG + safeYawD) % 360.0 + 720.0) % 360.0
         if (abs(AtmosphereMath.wrapDeg(camEff - lastCamEff)) > 0.6) {
             lastCamEff = camEff
             dirtyLut.set(true)
@@ -324,7 +333,9 @@ class SeaRenderer(
         tiltY += (tiltTy - tiltY) * 0.06
 
         val p = curParams ?: return
-        val pit = AtmosphereMath.clamp(pitG + pitD, -35.0, 35.0) * AtmosphereMath.D
+        val safePitG = if (pitG.isFinite()) pitG else 0.0
+        val safePitD = if (pitD.isFinite()) pitD else 0.0
+        val pit = AtmosphereMath.clamp(safePitG + safePitD, -35.0, 35.0) * AtmosphereMath.D
 
         if (pendingSpawnNearShip.compareAndSet(true, false)) {
             ship = ShipState.spawn(near = true, fast = s.fastShip)

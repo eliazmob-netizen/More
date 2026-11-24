@@ -22,22 +22,32 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,8 +84,12 @@ fun SeaScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
 
-    BackHandler(enabled = uiState.isControlsOpen) {
-        viewModel.toggleControls()
+    BackHandler(enabled = uiState.isFramingHomeCenter || uiState.isControlsOpen) {
+        if (uiState.isFramingHomeCenter) {
+            viewModel.onCancelFramingHomeCenter()
+        } else {
+            viewModel.toggleControls()
+        }
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -155,14 +169,15 @@ fun SeaScreen(
         }
 
         // Top-right floating HUD actions: live wallpaper, quick gyroscope toggle, settings button
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(end = 12.dp, top = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        if (!uiState.isFramingHomeCenter) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(end = 12.dp, top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Surface(
                 modifier = Modifier
                     .size(48.dp)
@@ -232,9 +247,88 @@ fun SeaScreen(
                 }
             }
         }
+        }
 
         AnimatedVisibility(
-            visible = uiState.isControlsOpen,
+            visible = uiState.isFramingHomeCenter,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+        ) {
+            val s = uiState.seaState
+            val pages = s.screenCount.coerceIn(2, 9)
+            val home = s.homeScreenIndex.coerceIn(1, pages)
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 440.dp)
+                    .fillMaxWidth()
+                    .testTag("framing_bar"),
+                shape = RoundedCornerShape(20.dp),
+                color = GlassSurface,
+                border = BorderStroke(1.dp, GlassBorder),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "${stringResource(R.string.framing_hint_title, home, pages)} · ${s.cam.toInt()}°",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = SeaFoamInk,
+                    )
+                    Text(
+                        text = stringResource(R.string.framing_hint_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SeaFoamInk.copy(alpha = 0.8f),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = viewModel::onCancelFramingHomeCenter,
+                            border = BorderStroke(1.dp, GlassBorder),
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("cancel_home_frame_button"),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.action_cancel),
+                                color = SeaFoamInk,
+                            )
+                        }
+                        Button(
+                            onClick = viewModel::onSaveHomeCenterFrame,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = OceanBlue,
+                                contentColor = Color.White,
+                            ),
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .heightIn(min = 48.dp)
+                                .testTag("save_home_frame_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = stringResource(R.string.action_save_frame))
+                        }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = uiState.isControlsOpen && !uiState.isFramingHomeCenter,
             enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
                 slideInVertically(
                     initialOffsetY = { it / 4 },
@@ -255,6 +349,7 @@ fun SeaScreen(
                         locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
                     }
                 },
+                onSelectTimeOnlyMode = viewModel::onSelectTimeOnlyMode,
                 onToggleGyro = viewModel::onToggleGyro,
                 onCallShip = viewModel::onCallShip,
                 onSetLiveWallpaper = { launchLiveWallpaperPicker(context) },
@@ -280,7 +375,9 @@ fun SeaScreen(
                 onToggleFps = viewModel::toggleFps,
                 onSelectScrollMode = viewModel::onSelectScrollMode,
                 onScreenCountChanged = viewModel::onScreenCountChanged,
+                onApplyDetectedScreenCount = viewModel::onApplyDetectedScreenCount,
                 onSelectHomeScreen = viewModel::onSelectHomeScreen,
+                onStartFramingHomeCenter = viewModel::onStartFramingHomeCenter,
                 onScrollSpanChanged = viewModel::onScrollSpanChanged,
                 onToggleScrollReverse = viewModel::onToggleScrollReverse,
                 onPreviewScreen = viewModel::onPreviewScreen,

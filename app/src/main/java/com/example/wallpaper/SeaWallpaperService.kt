@@ -46,15 +46,15 @@ class SeaWallpaperService : WallpaperService() {
             doy = AtmosphereMath.doyNow(),
         )
         private var lastAppliedPrefs: SavedPreferences? = null
+        private val panLock = Any()
         private var detectedScreenCount = 0
         private var hasNativeLauncherScroll = false
         private var firstNativeOffsetSeen: Float? = null
         private var nativeOffset = 0.0f
         private var virtualPage = 0
-        @Volatile
         private var animatedOffset = 0.0
-        @Volatile
         private var targetVirtualOffset = 0.0
+        private var lastPanStepMs = 0L
 
         private var surfaceWidth = 1080
         private var downX = 0f
@@ -93,13 +93,7 @@ class SeaWallpaperService : WallpaperService() {
             }
         }
 
-        private fun effectivePageCount(): Int {
-            return if (detectedScreenCount >= 2) {
-                detectedScreenCount
-            } else {
-                currentState.screenCount.coerceIn(2, 9)
-            }
-        }
+        private fun effectivePageCount(): Int = currentState.screenCount.coerceIn(2, 9)
 
         private fun applyPreferences(saved: SavedPreferences) {
             val prev = lastAppliedPrefs
@@ -202,23 +196,29 @@ class SeaWallpaperService : WallpaperService() {
                 )
             }
 
-            val pages = effectivePageCount()
-            if (prev == null || prev.scrollMode != saved.scrollMode || prev.homeScreenIndex != saved.homeScreenIndex) {
-                virtualPage = (saved.homeScreenIndex - 1).coerceIn(0, pages - 1)
-                val homeFrac = if (pages > 1) virtualPage.toDouble() / (pages - 1).toDouble() else 0.0
-                targetVirtualOffset = homeFrac
-                if (prev == null) animatedOffset = homeFrac
-            } else {
-                virtualPage = virtualPage.coerceIn(0, pages - 1)
-                targetVirtualOffset = if (pages > 1) virtualPage.toDouble() / (pages - 1).toDouble() else 0.0
+            synchronized(panLock) {
+                val pages = effectivePageCount()
+                if (prev == null ||
+                    prev.scrollMode != saved.scrollMode ||
+                    prev.homeScreenIndex != saved.homeScreenIndex ||
+                    prev.screenCount != saved.screenCount
+                ) {
+                    virtualPage = (saved.homeScreenIndex - 1).coerceIn(0, pages - 1)
+                    val homeFrac = virtualPage.toDouble() / (pages - 1).toDouble()
+                    targetVirtualOffset = homeFrac
+                    animatedOffset = homeFrac
+                } else {
+                    virtualPage = virtualPage.coerceIn(0, pages - 1)
+                    targetVirtualOffset = virtualPage.toDouble() / (pages - 1).toDouble()
+                }
+                updatePagePanningLocked()
             }
 
             // Enable touch listener strictly to detect launcher page swipes in PANORAMA mode
             // (needed on Samsung One UI and launchers that suppress onOffsetsChanged).
             setTouchEventsEnabled(saved.scrollMode == WallpaperScrollMode.PANORAMA)
 
-            renderer.pitD = currentState.camPitch
-            updatePagePanning()
+            renderer.pitD = if (currentState.camPitch.isFinite()) currentState.camPitch else 0.0
             renderer.updateConfig(currentState, timeRevision, qualityRevision)
 
             if (saved.autoMode) {
@@ -231,7 +231,7 @@ class SeaWallpaperService : WallpaperService() {
             }
         }
 
-        private fun updatePagePanning() {
+        private fun updatePagePanningLocked() {
             if (currentState.scrollMode != WallpaperScrollMode.PANORAMA) {
                 renderer.yawD = 0.0
                 return
@@ -240,27 +240,36 @@ class SeaWallpaperService : WallpaperService() {
             val clampedHome = currentState.homeScreenIndex.coerceIn(1, pages)
             val homeFraction = (clampedHome - 1).toDouble() / (pages - 1).toDouble()
             val activeOffset = if (hasNativeLauncherScroll) {
-                nativeOffset.toDouble()
+                nativeOffset.toDouble().coerceIn(0.0, 1.0)
             } else {
-                animatedOffset
+                animatedOffset.coerceIn(0.0, 1.0)
             }
             val signedSpan = if (currentState.scrollReverse) {
                 -currentState.scrollSpanDeg
             } else {
                 currentState.scrollSpanDeg
             }
-            renderer.yawD = (activeOffset - homeFraction) * signedSpan
+            val yaw = (activeOffset - homeFraction) * signedSpan
+            renderer.yawD = if (yaw.isFinite()) yaw else 0.0
         }
 
         private fun stepBeforeFrame() {
-            if (currentState.scrollMode == WallpaperScrollMode.PANORAMA && !hasNativeLauncherScroll) {
-                val diff = targetVirtualOffset - animatedOffset
-                if (abs(diff) > 0.0005) {
-                    animatedOffset += diff * 0.22
+            synchronized(panLock) {
+                if (currentState.scrollMode == WallpaperScrollMode.PANORAMA && !hasNativeLauncherScroll) {
+                    val now = SystemClock.uptimeMillis()
+                    val dt = if (lastPanStepMs == 0L) 16L else (now - lastPanStepMs).coerceIn(1L, 64L)
+                    lastPanStepMs = now
+                    val alpha = (1.0 - kotlin.math.exp(-dt / 85.0)).coerceIn(0.05, 0.45)
+                    val diff = targetVirtualOffset - animatedOffset
+                    if (abs(diff) > 0.0005) {
+                        animatedOffset += diff * alpha
+                    } else {
+                        animatedOffset = targetVirtualOffset
+                    }
+                    updatePagePanningLocked()
                 } else {
-                    animatedOffset = targetVirtualOffset
+                    lastPanStepMs = 0L
                 }
-                updatePagePanning()
             }
         }
 
@@ -281,7 +290,7 @@ class SeaWallpaperService : WallpaperService() {
             val lon = currentState.lon
             try {
                 val snap = weatherRepo.fetchWeather(lat, lon)
-                lastWeatherFetchMs = SystemClock.uptimeMillis()
+                lastWeatherFetchMs = SystemClock.elapsedRealtime()
                 timeRevision++
                 val updatedHours = AtmosphereMath.hoursNow(snap.utcOffsetSeconds)
                 currentState = currentState.copy(
@@ -339,16 +348,18 @@ class SeaWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
             isEngineVisible = visible
-            glThread?.setPaused(!visible)
             if (visible) {
+                renderer.forceImmediateAtmosphereRefresh()
+                glThread?.setPaused(false)
                 if (currentState.gyroMode) {
                     orientationController.start()
                 }
-                val now = SystemClock.uptimeMillis()
+                val now = SystemClock.elapsedRealtime()
                 if (currentState.autoMode && now - lastWeatherFetchMs > 600_000L) {
                     startWeatherPolling()
                 }
             } else {
+                glThread?.setPaused(true)
                 orientationController.stop()
             }
         }
@@ -362,67 +373,70 @@ class SeaWallpaperService : WallpaperService() {
             yPixelOffset: Int,
         ) {
             super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
+            if (!xOffset.isFinite()) return
             val clamped = xOffset.coerceIn(0f, 1f)
-            nativeOffset = clamped
 
-            if (!isPreview) {
-                val first = firstNativeOffsetSeen
-                if (first == null) {
-                    firstNativeOffsetSeen = clamped
-                } else if (abs(clamped - first) > 0.01f) {
-                    hasNativeLauncherScroll = true
-                }
+            synchronized(panLock) {
+                nativeOffset = clamped
 
-                val pages = when {
-                    xOffsetStep > 0.001f && xOffsetStep < 0.99f ->
-                        ((1.0f / xOffsetStep).roundToInt() + 1).coerceIn(2, 12)
-                    xOffsetStep >= 0.99f -> 2
-                    else -> null
-                }
-                if (pages != null) {
-                    hasNativeLauncherScroll = true
-                    if (pages != detectedScreenCount) {
+                if (!isPreview) {
+                    val first = firstNativeOffsetSeen
+                    if (first == null) {
+                        firstNativeOffsetSeen = clamped
+                    } else if (abs(clamped - first) > 0.02f) {
+                        hasNativeLauncherScroll = true
+                    }
+
+                    val pages = if (xOffsetStep.isFinite()) {
+                        when {
+                            xOffsetStep > 0.001f && xOffsetStep < 0.99f ->
+                                ((1.0f / xOffsetStep).roundToInt() + 1).coerceIn(2, 12)
+                            xOffsetStep >= 0.99f -> 2
+                            else -> null
+                        }
+                    } else {
+                        null
+                    }
+                    if (pages != null && pages != detectedScreenCount) {
                         detectedScreenCount = pages
                         engineScope.launch {
                             prefsRepo.setDetectedScreenCount(pages)
                         }
                     }
                 }
-            }
 
-            updatePagePanning()
+                updatePagePanningLocked()
+            }
         }
 
         override fun onTouchEvent(event: MotionEvent) {
             super.onTouchEvent(event)
-            if (currentState.scrollMode != WallpaperScrollMode.PANORAMA || hasNativeLauncherScroll) {
-                return
-            }
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.x
-                    downY = event.y
-                    swipeConsumed = false
+            synchronized(panLock) {
+                if (currentState.scrollMode != WallpaperScrollMode.PANORAMA || hasNativeLauncherScroll) {
+                    return
                 }
-                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (swipeConsumed) return
-                    val dx = event.x - downX
-                    val dy = event.y - downY
-                    val threshold = if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                        (surfaceWidth * 0.045f).coerceAtLeast(40f)
-                    } else {
-                        (surfaceWidth * 0.14f).coerceAtLeast(90f)
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = event.x
+                        downY = event.y
+                        swipeConsumed = false
                     }
-                    val slopeRatio = if (event.actionMasked == MotionEvent.ACTION_CANCEL) 1.6f else 1.35f
-                    if (abs(dx) > threshold && abs(dx) > abs(dy) * slopeRatio) {
-                        swipeConsumed = true
-                        val pages = effectivePageCount()
-                        val deltaPage = if (dx < 0f) 1 else -1
-                        virtualPage = (virtualPage + deltaPage).coerceIn(0, pages - 1)
-                        targetVirtualOffset = if (pages > 1) {
-                            virtualPage.toDouble() / (pages - 1).toDouble()
+                    MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (swipeConsumed) return
+                        val dx = event.x - downX
+                        val dy = event.y - downY
+                        val threshold = if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                            (surfaceWidth * 0.045f).coerceAtLeast(40f)
                         } else {
-                            0.0
+                            (surfaceWidth * 0.14f).coerceAtLeast(90f)
+                        }
+                        val slopeRatio = if (event.actionMasked == MotionEvent.ACTION_CANCEL) 1.6f else 1.35f
+                        if (abs(dx) > threshold && abs(dx) > abs(dy) * slopeRatio) {
+                            swipeConsumed = true
+                            val pages = effectivePageCount()
+                            val deltaPage = if (dx < 0f) 1 else -1
+                            virtualPage = (virtualPage + deltaPage).coerceIn(0, pages - 1)
+                            targetVirtualOffset = virtualPage.toDouble() / (pages - 1).toDouble()
                         }
                     }
                 }
