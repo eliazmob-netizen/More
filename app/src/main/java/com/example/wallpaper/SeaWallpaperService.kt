@@ -8,9 +8,7 @@ import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
-import android.view.MotionEvent
 import android.view.SurfaceHolder
-import android.view.ViewConfiguration
 import com.example.data.PreferencesRepository
 import com.example.data.SavedPreferences
 import com.example.data.WeatherRepository
@@ -18,6 +16,7 @@ import com.example.sensors.OrientationController
 import com.example.simulation.AtmosphereMath
 import com.example.simulation.SeaRenderer
 import com.example.simulation.SeaState
+import com.example.simulation.WallpaperScrollMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,7 +25,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class SeaWallpaperService : WallpaperService() {
 
@@ -45,20 +44,13 @@ class SeaWallpaperService : WallpaperService() {
             doy = AtmosphereMath.doyNow(),
         )
         private var lastAppliedPrefs: SavedPreferences? = null
+        private var detectedScreenCount = 0
+        private var lastXOffset = 0.0f
         private var lastWeatherFetchMs = 0L
         private var weatherJob: Job? = null
         private var prefsJob: Job? = null
         private var glThread: WallpaperGlThread? = null
         private var isEngineVisible = false
-
-        private var dragYaw = 0.0
-        private var pageYaw = 0.0
-        private var dragPitch = 0.0
-        private var lastTouchX = 0f
-        private var lastTouchY = 0f
-        private var lastTapDownMs = 0L
-        private var lastTapDownX = 0f
-        private var lastTapDownY = 0f
 
         private val renderer = SeaRenderer(
             onTelemetry = { _, _, _ -> },
@@ -66,16 +58,20 @@ class SeaWallpaperService : WallpaperService() {
         )
 
         private val orientationController = OrientationController(applicationContext) { yawG, pitG, roll, tiltTx, tiltTy ->
-            renderer.yawG = yawG
-            renderer.pitG = pitG
-            renderer.roll = roll
-            renderer.tiltTx = tiltTx
-            renderer.tiltTy = tiltTy
+            if (currentState.gyroMode) {
+                renderer.yawG = yawG
+                renderer.pitG = pitG
+                renderer.roll = roll
+                renderer.tiltTx = tiltTx
+                renderer.tiltTy = tiltTy
+            }
         }
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
-            setTouchEventsEnabled(true)
+            // Disable direct touch manipulation on the live wallpaper screen;
+            // all framing and settings are configured strictly inside Wallpaper Settings.
+            setTouchEventsEnabled(false)
 
             prefsJob = engineScope.launch {
                 prefsRepo.preferencesFlow.collect { saved ->
@@ -87,6 +83,9 @@ class SeaWallpaperService : WallpaperService() {
         private fun applyPreferences(saved: SavedPreferences) {
             val prev = lastAppliedPrefs
             lastAppliedPrefs = saved
+            if (saved.detectedScreenCount > 0) {
+                detectedScreenCount = saved.detectedScreenCount
+            }
 
             if (prev == null || prev.qualityMode != saved.qualityMode) {
                 qualityRevision++
@@ -102,6 +101,16 @@ class SeaWallpaperService : WallpaperService() {
             val gyroEnabled = saved.gyroMode && orientationController.isAvailable
             if (prev == null || prev.gyroMode != saved.gyroMode) {
                 orientationController.setGyroEnabled(gyroEnabled)
+                if (gyroEnabled && isEngineVisible) {
+                    orientationController.start()
+                } else {
+                    orientationController.stop()
+                    renderer.yawG = 0.0
+                    renderer.pitG = 0.0
+                    renderer.roll = 0.0
+                    renderer.tiltTx = 0.0
+                    renderer.tiltTy = 0.0
+                }
             }
 
             val targetTime = if (saved.realTime) {
@@ -121,12 +130,17 @@ class SeaWallpaperService : WallpaperService() {
                     qualityMode = saved.qualityMode,
                     gyroMode = gyroEnabled,
                     cam = saved.cam,
+                    camPitch = saved.camPitch,
                     lhOn = saved.lhOn,
-                    lhRotate = saved.lhRotate,
+                    lhMode = saved.lhMode,
                     shipOn = saved.shipOn,
                     birdsOn = saved.birdsOn,
                     dropsOn = saved.dropsOn,
                     fastShip = saved.fastShip,
+                    scrollMode = saved.scrollMode,
+                    homeScreenIndex = saved.homeScreenIndex,
+                    scrollSpanDeg = saved.scrollSpanDeg,
+                    scrollReverse = saved.scrollReverse,
                     realTime = true,
                     fastDay = false,
                 )
@@ -143,20 +157,27 @@ class SeaWallpaperService : WallpaperService() {
                     fog = saved.fog,
                     storm = saved.storm,
                     cam = saved.cam,
+                    camPitch = saved.camPitch,
                     windDir = saved.windDir,
                     realTime = if (saved.autoMode) true else saved.realTime,
                     fastDay = if (saved.autoMode) false else saved.fastDay,
                     t = targetTime,
                     doy = AtmosphereMath.doyNow(),
                     lhOn = saved.lhOn,
-                    lhRotate = saved.lhRotate,
+                    lhMode = saved.lhMode,
                     shipOn = saved.shipOn,
                     birdsOn = saved.birdsOn,
                     dropsOn = saved.dropsOn,
                     fastShip = saved.fastShip,
+                    scrollMode = saved.scrollMode,
+                    homeScreenIndex = saved.homeScreenIndex,
+                    scrollSpanDeg = saved.scrollSpanDeg,
+                    scrollReverse = saved.scrollReverse,
                 )
             }
 
+            renderer.pitD = currentState.camPitch
+            updatePagePanning()
             renderer.updateConfig(currentState, timeRevision, qualityRevision)
 
             if (saved.autoMode) {
@@ -167,6 +188,22 @@ class SeaWallpaperService : WallpaperService() {
                 weatherJob?.cancel()
                 weatherJob = null
             }
+        }
+
+        private fun updatePagePanning() {
+            if (currentState.scrollMode != WallpaperScrollMode.PANORAMA) {
+                renderer.yawD = 0.0
+                return
+            }
+            val effectivePages = if (detectedScreenCount >= 2) detectedScreenCount else 3
+            val clampedHome = currentState.homeScreenIndex.coerceIn(1, effectivePages)
+            val homeFraction = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
+            val signedSpan = if (currentState.scrollReverse) {
+                -currentState.scrollSpanDeg
+            } else {
+                currentState.scrollSpanDeg
+            }
+            renderer.yawD = (lastXOffset.toDouble() - homeFraction) * signedSpan
         }
 
         private fun startWeatherPolling() {
@@ -240,7 +277,9 @@ class SeaWallpaperService : WallpaperService() {
             isEngineVisible = visible
             glThread?.setPaused(!visible)
             if (visible) {
-                orientationController.start()
+                if (currentState.gyroMode) {
+                    orientationController.start()
+                }
                 val now = SystemClock.uptimeMillis()
                 if (currentState.autoMode && now - lastWeatherFetchMs > 600_000L) {
                     startWeatherPolling()
@@ -259,44 +298,24 @@ class SeaWallpaperService : WallpaperService() {
             yPixelOffset: Int,
         ) {
             super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
-            pageYaw = (xOffset.toDouble() - 0.5) * 28.0
-            renderer.yawD = dragYaw + pageYaw
-        }
+            lastXOffset = xOffset.coerceIn(0f, 1f)
 
-        override fun onTouchEvent(event: MotionEvent) {
-            super.onTouchEvent(event)
-            val slop = ViewConfiguration.get(applicationContext).scaledTouchSlop.toFloat()
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastTapDownMs < 300L &&
-                        abs(event.x - lastTapDownX) < slop * 2f &&
-                        abs(event.y - lastTapDownY) < slop * 2f
-                    ) {
-                        dragYaw = 0.0
-                        dragPitch = 0.0
-                        renderer.yawD = pageYaw
-                        renderer.pitD = 0.0
-                        lastTapDownMs = 0L
-                    } else {
-                        lastTapDownMs = now
-                        lastTapDownX = event.x
-                        lastTapDownY = event.y
-                    }
-                    lastTouchX = event.x
-                    lastTouchY = event.y
+            if (!isPreview) {
+                val pages = when {
+                    xOffsetStep > 0.001f && xOffsetStep < 0.99f ->
+                        ((1.0f / xOffsetStep).roundToInt() + 1).coerceIn(2, 12)
+                    xOffsetStep >= 0.99f -> 2
+                    else -> null
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.x - lastTouchX
-                    val dy = event.y - lastTouchY
-                    lastTouchX = event.x
-                    lastTouchY = event.y
-                    dragYaw -= dx * 0.16
-                    dragPitch = AtmosphereMath.clamp(dragPitch + dy * 0.10, -30.0, 30.0)
-                    renderer.yawD = dragYaw + pageYaw
-                    renderer.pitD = dragPitch
+                if (pages != null && pages != detectedScreenCount) {
+                    detectedScreenCount = pages
+                    engineScope.launch {
+                        prefsRepo.setDetectedScreenCount(pages)
+                    }
                 }
             }
+
+            updatePagePanning()
         }
 
         override fun onDestroy() {

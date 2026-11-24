@@ -435,7 +435,7 @@ class SeaRenderer(
         GLES20.glUniform3f(
             u1.getValue("uLH"),
             p.lh.toFloat(),
-            if (p.lhRotate) 1f else 0f,
+            p.lhMode.ordinal.toFloat(),
             p.lhFixedB.toFloat(),
         )
         GLES20.glUniform3f(u1.getValue("uSun"), p.sun[0].toFloat(), p.sun[1].toFloat(), p.sun[2].toFloat())

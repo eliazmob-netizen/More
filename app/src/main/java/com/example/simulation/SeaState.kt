@@ -32,6 +32,17 @@ enum class TimePreset(val label: String) {
     NIGHT("Ночь"),
 }
 
+enum class LighthouseMode {
+    FIXED,
+    SLOW,
+    FAST,
+}
+
+enum class WallpaperScrollMode {
+    FIXED,
+    PANORAMA,
+}
+
 data class SunTimes(
     val sunriseHours: Double,
     val sunsetHours: Double,
@@ -61,13 +72,18 @@ data class SeaState(
     val doy: Int = 1,
     val bolt: Double = 0.5,
     val lhOn: Boolean = true,
-    val lhRotate: Boolean = true,
+    val lhMode: LighthouseMode = LighthouseMode.FAST,
     val shipOn: Boolean = true,
     val birdsOn: Boolean = true,
     val dropsOn: Boolean = true,
     val fastShip: Boolean = false,
     val autoMode: Boolean = false,
     val gyroMode: Boolean = false,
+    val camPitch: Double = 0.0,
+    val scrollMode: WallpaperScrollMode = WallpaperScrollMode.FIXED,
+    val homeScreenIndex: Int = 1,
+    val scrollSpanDeg: Double = 90.0,
+    val scrollReverse: Boolean = false,
     val yawG: Double = 0.0,
     val yawD: Double = 0.0,
     val pitG: Double = 0.0,
@@ -80,7 +96,7 @@ data class SeaState(
 data class FrameParams(
     val bow: Double,
     val lh: Double,
-    val lhRotate: Boolean = true,
+    val lhMode: LighthouseMode = LighthouseMode.FAST,
     val lhFixedB: Double = 0.0,
     val ship: Double,
     val night2: Double,

@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.Button
@@ -64,8 +66,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.simulation.AtmosphereMath
+import com.example.simulation.LighthouseMode
 import com.example.simulation.QualityMode
 import com.example.simulation.TimePreset
+import com.example.simulation.WallpaperScrollMode
 import com.example.simulation.WeatherPreset
 import com.example.ui.theme.ChipBackground
 import com.example.ui.theme.GlassBorder
@@ -74,6 +78,7 @@ import com.example.ui.theme.OceanBlue
 import com.example.ui.theme.SeaFoamInk
 import com.example.ui.theme.SkyCyan
 import com.example.ui.theme.SunAmber
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -83,6 +88,8 @@ fun ControlsPanel(
     onToggleGyro: () -> Unit,
     onCallShip: () -> Unit,
     onSetLiveWallpaper: () -> Unit,
+    onFrameAllDay: () -> Unit,
+    onFrameAllNight: () -> Unit,
     onSelectRainbow: () -> Unit,
     onSelectWeatherPreset: (WeatherPreset) -> Unit,
     onSelectTimePreset: (TimePreset) -> Unit,
@@ -93,7 +100,7 @@ fun ControlsPanel(
     onFogChanged: (Double) -> Unit,
     onCamChanged: (Double) -> Unit,
     onToggleLh: (Boolean) -> Unit,
-    onToggleLhRotate: (Boolean) -> Unit,
+    onSelectLhMode: (LighthouseMode) -> Unit,
     onToggleShip: (Boolean) -> Unit,
     onToggleBirds: (Boolean) -> Unit,
     onToggleDrops: (Boolean) -> Unit,
@@ -101,6 +108,11 @@ fun ControlsPanel(
     onToggleRealTime: (Boolean) -> Unit,
     onToggleFastDay: (Boolean) -> Unit,
     onToggleFps: () -> Unit,
+    onSelectScrollMode: (WallpaperScrollMode) -> Unit,
+    onSelectHomeScreen: (Int) -> Unit,
+    onScrollSpanChanged: (Double) -> Unit,
+    onToggleScrollReverse: (Boolean) -> Unit,
+    onPreviewScreen: (Int?) -> Unit,
     onCityQueryChanged: (String) -> Unit,
     onSearchCity: () -> Unit,
     onQualityChanged: (QualityMode) -> Unit,
@@ -113,7 +125,7 @@ fun ControlsPanel(
         modifier = modifier
             .widthIn(max = 440.dp)
             .fillMaxWidth()
-            .heightIn(max = 520.dp)
+            .heightIn(max = 540.dp)
             .testTag("controls_panel"),
         shape = RoundedCornerShape(20.dp),
         color = GlassSurface,
@@ -170,7 +182,7 @@ fun ControlsPanel(
                 )
             }
 
-            // Weather presets + Rainbow
+            // Weather presets + Rainbow + All-in-one framing
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -180,6 +192,18 @@ fun ControlsPanel(
                     selected = uiState.isRainbowActive,
                     onClick = onSelectRainbow,
                     testTag = "preset_rainbow",
+                )
+                PresetChip(
+                    label = stringResource(R.string.action_frame_all_day),
+                    selected = false,
+                    onClick = onFrameAllDay,
+                    testTag = "preset_frame_all_day",
+                )
+                PresetChip(
+                    label = stringResource(R.string.action_frame_all_night),
+                    selected = false,
+                    onClick = onFrameAllNight,
+                    testTag = "preset_frame_all_night",
                 )
                 WeatherPreset.entries.forEach { preset ->
                     PresetChip(
@@ -331,17 +355,6 @@ fun ControlsPanel(
                     onCheckedChange = onToggleLh,
                     testTag = "toggle_lighthouse",
                 )
-                if (s.lhOn) {
-                    ToggleChip(
-                        label = stringResource(
-                            if (s.lhRotate) R.string.toggle_lighthouse_rotate
-                            else R.string.toggle_lighthouse_fixed,
-                        ),
-                        checked = s.lhRotate,
-                        onCheckedChange = onToggleLhRotate,
-                        testTag = "toggle_lighthouse_rotate",
-                    )
-                }
                 ToggleChip(
                     label = stringResource(R.string.toggle_ship),
                     icon = Icons.Rounded.Sailing,
@@ -389,6 +402,166 @@ fun ControlsPanel(
                     testTag = "toggle_fps",
                 )
             }
+
+            // 3 Lighthouse light modes when lighthouse is active
+            if (s.lhOn) {
+                Text(
+                    text = stringResource(R.string.lighthouse_mode_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = SeaFoamInk.copy(alpha = 0.85f),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    PresetChip(
+                        label = stringResource(R.string.lh_mode_fixed),
+                        selected = s.lhMode == LighthouseMode.FIXED,
+                        onClick = { onSelectLhMode(LighthouseMode.FIXED) },
+                        testTag = "lh_mode_fixed",
+                    )
+                    PresetChip(
+                        label = stringResource(R.string.lh_mode_slow),
+                        selected = s.lhMode == LighthouseMode.SLOW,
+                        onClick = { onSelectLhMode(LighthouseMode.SLOW) },
+                        testTag = "lh_mode_slow",
+                    )
+                    PresetChip(
+                        label = stringResource(R.string.lh_mode_fast),
+                        selected = s.lhMode == LighthouseMode.FAST,
+                        onClick = { onSelectLhMode(LighthouseMode.FAST) },
+                        testTag = "lh_mode_fast",
+                    )
+                }
+            }
+
+            HorizontalDivider(color = GlassBorder)
+
+            // Wallpaper home-screen scrolling behavior
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ViewCarousel,
+                    contentDescription = null,
+                    tint = SkyCyan,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = stringResource(R.string.wallpaper_scroll_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = SeaFoamInk.copy(alpha = 0.9f),
+                )
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                PresetChip(
+                    label = stringResource(R.string.scroll_mode_fixed),
+                    selected = s.scrollMode == WallpaperScrollMode.FIXED,
+                    onClick = { onSelectScrollMode(WallpaperScrollMode.FIXED) },
+                    testTag = "scroll_mode_fixed",
+                )
+                PresetChip(
+                    label = stringResource(R.string.scroll_mode_panorama),
+                    selected = s.scrollMode == WallpaperScrollMode.PANORAMA,
+                    onClick = { onSelectScrollMode(WallpaperScrollMode.PANORAMA) },
+                    testTag = "scroll_mode_panorama",
+                )
+            }
+
+            if (s.scrollMode == WallpaperScrollMode.PANORAMA) {
+                val effectivePages = if (uiState.detectedScreenCount >= 2) uiState.detectedScreenCount else 3
+                val clampedHome = s.homeScreenIndex.coerceIn(1, effectivePages)
+                val detectedText = when {
+                    uiState.detectedScreenCount >= 2 ->
+                        "Активных экранов рабочего стола: ${uiState.detectedScreenCount}"
+                    uiState.detectedScreenCount == 1 ->
+                        "Активных экранов: 1 (добавьте ещё стол, чтобы листать панораму)"
+                    else ->
+                        "Число экранов определится само после установки обоев (сейчас предпросмотр для 3)"
+                }
+                Text(
+                    text = detectedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SkyCyan,
+                    modifier = Modifier.testTag("detected_screens_text"),
+                )
+
+                Text(
+                    text = stringResource(R.string.label_home_screen),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SeaFoamInk.copy(alpha = 0.8f),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (idx in 1..effectivePages) {
+                        PresetChip(
+                            label = if (idx == clampedHome) "$idx (главный)" else "$idx",
+                            selected = idx == clampedHome,
+                            onClick = { onSelectHomeScreen(idx) },
+                            testTag = "home_screen_$idx",
+                        )
+                    }
+                }
+
+                SeaSliderRow(
+                    label = stringResource(R.string.label_span),
+                    icon = Icons.Rounded.SwapHoriz,
+                    value = s.scrollSpanDeg.toFloat(),
+                    valueRange = 20f..180f,
+                    trailingText = "${s.scrollSpanDeg.roundToInt()}°",
+                    onValueChange = { onScrollSpanChanged(it.toDouble()) },
+                    testTag = "slider_scroll_span",
+                )
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ToggleChip(
+                        label = stringResource(
+                            if (s.scrollReverse) R.string.scroll_dir_left else R.string.scroll_dir_right,
+                        ),
+                        checked = s.scrollReverse,
+                        onCheckedChange = onToggleScrollReverse,
+                        testTag = "toggle_scroll_reverse",
+                    )
+                }
+
+                Text(
+                    text = stringResource(R.string.label_preview_screen),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SeaFoamInk.copy(alpha = 0.8f),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val activePreview = uiState.previewScreenIndex ?: clampedHome
+                    for (idx in 1..effectivePages) {
+                        val homeFrac = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
+                        val idxFrac = (idx - 1).toDouble() / (effectivePages - 1).toDouble()
+                        val signedSpan = if (s.scrollReverse) -s.scrollSpanDeg else s.scrollSpanDeg
+                        val angleDeg = ((s.cam + (idxFrac - homeFrac) * signedSpan) % 360.0 + 360.0) % 360.0
+                        PresetChip(
+                            label = "$idx (${angleDeg.roundToInt()}°)",
+                            selected = activePreview == idx,
+                            onClick = {
+                                onPreviewScreen(if (idx == clampedHome) null else idx)
+                            },
+                            testTag = "preview_screen_$idx",
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = GlassBorder)
 
             // City search row
             Row(
@@ -651,7 +824,7 @@ private fun SeaSliderRow(
             text = label,
             style = MaterialTheme.typography.bodySmall,
             color = SeaFoamInk.copy(alpha = 0.85f),
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier.width(68.dp),
         )
         Slider(
             value = value,

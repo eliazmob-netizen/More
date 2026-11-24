@@ -82,6 +82,65 @@ object AtmosphereMath {
         return SunTimes(up ?: 6.0, dn ?: 20.0)
     }
 
+    fun findSunsetLighthouseHour(lat: Double, doy: Int, targetCamDeg: Double = 263.0): Double {
+        val targetAz = (targetCamDeg - 180.0) * D
+        var bestH = 18.0
+        var bestScore = Double.MAX_VALUE
+        var h = 12.0
+        while (h <= 23.8) {
+            val sp = solar(h, lat, doy)
+            val elDeg = sp.el / D
+            if (elDeg in 2.0..18.0) {
+                val azErr = abs(wrapDeg((sp.az - targetAz) / D))
+                val elPenalty = abs(elDeg - 7.5) * 0.4
+                val score = azErr + elPenalty
+                if (score < bestScore) {
+                    bestScore = score
+                    bestH = h
+                }
+            }
+            h += 0.05
+        }
+        return bestH
+    }
+
+    fun findNightMoonLighthouseAlignment(
+        lat: Double,
+        doy: Int,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Pair<Double, Double> {
+        val ph = moonPhase(nowMs)
+        val la = lat * D
+        val dm = 5.0 * D
+        val lhWorldAz = 268.0
+        var bestH = 23.0
+        var bestCam = 263.0
+        var bestScore = Double.MAX_VALUE
+        var h = 0.0
+        while (h < 24.0) {
+            val sp = solar(h, lat, doy)
+            if (sp.el / D < -2.0) {
+                val ha = (h - 12.0) * 15.0 * D - ph * 2.0 * PI
+                val sE = sin(la) * sin(dm) + cos(la) * cos(dm) * cos(ha)
+                val mElDeg = asin(clamp(sE, -1.0, 1.0)) / D
+                if (mElDeg > 3.5) {
+                    val mAz = atan2(sin(ha), cos(ha) * sin(la) - tan(dm) * cos(la))
+                    val mAzCompass = ((mAz / D + 180.0) % 360.0 + 360.0) % 360.0
+                    val diff = abs(wrapDeg(mAzCompass - lhWorldAz))
+                    val score = diff + abs(mElDeg - 10.0) * 0.25
+                    if (score < bestScore) {
+                        bestScore = score
+                        bestH = h
+                        val midOffset = clamp(wrapDeg(mAzCompass - lhWorldAz) * 0.5, -8.0, 8.0)
+                        bestCam = ((lhWorldAz + midOffset - 3.0) % 360.0 + 360.0) % 360.0
+                    }
+                }
+            }
+            h += 0.05
+        }
+        return bestH to bestCam
+    }
+
     fun camVec(el: Double, az: Double, camAz: Double): DoubleArray {
         val a = az - camAz
         val cosEl = cos(el)
@@ -295,7 +354,7 @@ object AtmosphereMath {
         return FrameParams(
             bow = bow,
             lh = lh,
-            lhRotate = s.lhRotate,
+            lhMode = s.lhMode,
             lhFixedB = lhFixedB,
             ship = ship,
             night2 = clamp((-elDeg - 1.0) / 6.0, 0.0, 1.0),

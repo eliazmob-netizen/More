@@ -11,17 +11,21 @@ import com.example.data.WeatherRepository
 import com.example.sensors.OrientationController
 import com.example.simulation.AtmosphereMath
 import com.example.simulation.FpsStats
+import com.example.simulation.LighthouseMode
 import com.example.simulation.QualityMode
 import com.example.simulation.SeaRenderer
 import com.example.simulation.SeaState
 import com.example.simulation.TimePreset
+import com.example.simulation.WallpaperScrollMode
 import com.example.simulation.WeatherPreset
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -40,6 +44,8 @@ data class SeaUiState(
     val isRainbowActive: Boolean = false,
     val activeTimePreset: TimePreset? = null,
     val isSearchingCity: Boolean = false,
+    val detectedScreenCount: Int = 0,
+    val previewScreenIndex: Int? = null,
 )
 
 class SeaViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,11 +104,13 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     private val orientationController = OrientationController(appContext) { yawG, pitG, roll, tiltTx, tiltTy ->
-        renderer.yawG = yawG
-        renderer.pitG = pitG
-        renderer.roll = roll
-        renderer.tiltTx = tiltTx
-        renderer.tiltTy = tiltTy
+        if (_uiState.value.seaState.gyroMode) {
+            renderer.yawG = yawG
+            renderer.pitG = pitG
+            renderer.roll = roll
+            renderer.tiltTx = tiltTx
+            renderer.tiltTy = tiltTy
+        }
     }
 
     init {
@@ -113,9 +121,13 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             val gyroEnabled = saved.gyroMode && orientationController.isAvailable
             if (gyroEnabled) {
                 orientationController.setGyroEnabled(true)
+                orientationController.start()
+            } else {
+                orientationController.setGyroEnabled(false)
             }
             _uiState.update {
                 it.copy(
+                    detectedScreenCount = saved.detectedScreenCount,
                     seaState = it.seaState.copy(
                         lat = saved.lat,
                         lon = saved.lon,
@@ -127,24 +139,40 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                         fog = saved.fog,
                         storm = saved.storm,
                         cam = saved.cam,
+                        camPitch = saved.camPitch,
                         windDir = saved.windDir,
                         realTime = saved.realTime,
                         fastDay = saved.fastDay,
                         t = if (saved.realTime) AtmosphereMath.hoursNow(null) else saved.manualTimeHours,
                         doy = AtmosphereMath.doyNow(),
                         lhOn = saved.lhOn,
-                        lhRotate = saved.lhRotate,
+                        lhMode = saved.lhMode,
                         shipOn = saved.shipOn,
                         birdsOn = saved.birdsOn,
                         dropsOn = saved.dropsOn,
                         fastShip = saved.fastShip,
+                        scrollMode = saved.scrollMode,
+                        homeScreenIndex = saved.homeScreenIndex,
+                        scrollSpanDeg = saved.scrollSpanDeg,
+                        scrollReverse = saved.scrollReverse,
                     ),
                 )
             }
+            renderer.yawD = 0.0
+            renderer.pitD = saved.camPitch
             pushStateToRenderer()
             if (saved.autoMode) {
                 enableAutoModeInternal(skipPermissionRequest = !locationHelper.hasLocationPermission())
             }
+        }
+
+        viewModelScope.launch {
+            prefsRepo.preferencesFlow
+                .map { it.detectedScreenCount }
+                .distinctUntilChanged()
+                .collect { count ->
+                    _uiState.update { it.copy(detectedScreenCount = count) }
+                }
         }
     }
 
@@ -161,7 +189,9 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onResume() {
-        orientationController.start()
+        if (_uiState.value.seaState.gyroMode) {
+            orientationController.start()
+        }
     }
 
     fun onPause() {
@@ -169,7 +199,16 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleControls() {
-        _uiState.update { it.copy(isControlsOpen = !it.isControlsOpen) }
+        val nextOpen = !_uiState.value.isControlsOpen
+        if (!nextOpen) {
+            renderer.yawD = 0.0
+        }
+        _uiState.update {
+            it.copy(
+                isControlsOpen = nextOpen,
+                previewScreenIndex = if (!nextOpen) null else it.previewScreenIndex,
+            )
+        }
     }
 
     fun toggleFps() {
@@ -177,12 +216,38 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onDragLook(dx: Float, dy: Float) {
-        renderer.yawD -= dx * 0.22
-        renderer.pitD = AtmosphereMath.clamp(renderer.pitD + dy * 0.12, -30.0, 30.0)
+        val s = _uiState.value.seaState
+        val nextCam = ((s.cam - dx * 0.22) % 360.0 + 360.0) % 360.0
+        val nextPitch = AtmosphereMath.clamp(s.camPitch + dy * 0.12, -30.0, 30.0)
+        val nextWindDir = ((s.windDir - s.cam + nextCam) % 360.0 + 360.0) % 360.0
+        renderer.yawD = 0.0
+        renderer.pitD = nextPitch
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(
+                    cam = nextCam,
+                    camPitch = nextPitch,
+                    windDir = nextWindDir,
+                ),
+                previewScreenIndex = null,
+                isRainbowActive = false,
+            )
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     fun onDoubleTapResetLook() {
-        renderer.resetDragLook()
+        renderer.yawD = 0.0
+        renderer.pitD = 0.0
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(camPitch = 0.0),
+                previewScreenIndex = null,
+            )
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
     }
 
     fun onToggleGyro() {
@@ -194,6 +259,16 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         }
         val next = !_uiState.value.seaState.gyroMode
         orientationController.setGyroEnabled(next)
+        if (next) {
+            orientationController.start()
+        } else {
+            orientationController.stop()
+            renderer.yawG = 0.0
+            renderer.pitG = 0.0
+            renderer.roll = 0.0
+            renderer.tiltTx = 0.0
+            renderer.tiltTy = 0.0
+        }
         _uiState.update {
             it.copy(
                 seaState = it.seaState.copy(gyroMode = next),
@@ -216,6 +291,49 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         pushStateToRenderer()
+        persistCurrentState(immediate = true)
+        renderer.requestSpawnShip(_uiState.value.seaState.fastShip)
+    }
+
+    fun onFrameAllTogether(night: Boolean) {
+        switchToManual()
+        val s = _uiState.value.seaState
+        val doy = AtmosphereMath.doyNow()
+        val targetCam: Double
+        val targetHour: Double
+        if (night) {
+            val (h, c) = AtmosphereMath.findNightMoonLighthouseAlignment(s.lat, doy)
+            targetHour = h
+            targetCam = c
+        } else {
+            targetCam = 263.0
+            targetHour = AtmosphereMath.findSunsetLighthouseHour(s.lat, doy, targetCam)
+        }
+        timeRevision++
+        renderer.yawD = 0.0
+        renderer.pitD = 0.0
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(
+                    t = targetHour,
+                    doy = doy,
+                    realTime = false,
+                    fastDay = false,
+                    cam = targetCam,
+                    camPitch = 0.0,
+                    lhOn = true,
+                    shipOn = true,
+                ),
+                previewScreenIndex = null,
+                activeTimePreset = null,
+                isRainbowActive = false,
+                statusMessage = appContext.getString(
+                    if (night) R.string.status_framed_night else R.string.status_framed_day,
+                ),
+            )
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
         renderer.requestSpawnShip(_uiState.value.seaState.fastShip)
     }
 
@@ -398,7 +516,8 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         val sp = AtmosphereMath.solar(tRainbow, s.lat, doy)
         val cam = (((sp.az / AtmosphereMath.D + 180.0) + 180.0) % 360.0 + 360.0) % 360.0
         timeRevision++
-        renderer.resetDragLook()
+        renderer.yawD = 0.0
+        renderer.pitD = 0.0
         _uiState.update {
             it.copy(
                 seaState = it.seaState.copy(
@@ -412,8 +531,10 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                     fog = 0.0,
                     storm = 0.0,
                     cam = cam,
+                    camPitch = 0.0,
                     windDir = (cam + 160.0) % 360.0,
                 ),
+                previewScreenIndex = null,
                 isRainbowActive = true,
                 activeWeatherPreset = null,
                 activeTimePreset = null,
@@ -557,6 +678,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                 isRainbowActive = false,
             )
         }
+        updatePreviewOffset(_uiState.value.previewScreenIndex)
         pushStateToRenderer()
         persistCurrentState(immediate = false)
     }
@@ -567,8 +689,8 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         persistCurrentState(immediate = true)
     }
 
-    fun onToggleLhRotate(enabled: Boolean) {
-        _uiState.update { it.copy(seaState = it.seaState.copy(lhRotate = enabled)) }
+    fun onSelectLhMode(mode: LighthouseMode) {
+        _uiState.update { it.copy(seaState = it.seaState.copy(lhMode = mode)) }
         pushStateToRenderer()
         persistCurrentState(immediate = true)
     }
@@ -626,6 +748,69 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         }
         pushStateToRenderer()
         persistCurrentState(immediate = true)
+    }
+
+    fun onSelectScrollMode(mode: WallpaperScrollMode) {
+        val nextPreview = if (mode == WallpaperScrollMode.FIXED) null else _uiState.value.previewScreenIndex
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(scrollMode = mode),
+                previewScreenIndex = nextPreview,
+            )
+        }
+        updatePreviewOffset(nextPreview)
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
+    fun onSelectHomeScreen(index: Int) {
+        _uiState.update {
+            it.copy(
+                seaState = it.seaState.copy(homeScreenIndex = index.coerceAtLeast(1)),
+                previewScreenIndex = null,
+            )
+        }
+        renderer.yawD = 0.0
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
+    fun onScrollSpanChanged(deg: Double) {
+        val clamped = deg.coerceIn(20.0, 180.0)
+        _uiState.update {
+            it.copy(seaState = it.seaState.copy(scrollSpanDeg = clamped))
+        }
+        updatePreviewOffset(_uiState.value.previewScreenIndex)
+        persistCurrentState(immediate = false)
+    }
+
+    fun onToggleScrollReverse(reverse: Boolean) {
+        _uiState.update {
+            it.copy(seaState = it.seaState.copy(scrollReverse = reverse))
+        }
+        updatePreviewOffset(_uiState.value.previewScreenIndex)
+        persistCurrentState(immediate = true)
+    }
+
+    fun onPreviewScreen(index: Int?) {
+        _uiState.update { it.copy(previewScreenIndex = index) }
+        updatePreviewOffset(index)
+    }
+
+    private fun updatePreviewOffset(previewIndex: Int?) {
+        val state = _uiState.value
+        val s = state.seaState
+        if (previewIndex == null || s.scrollMode != WallpaperScrollMode.PANORAMA) {
+            renderer.yawD = 0.0
+            return
+        }
+        val effectivePages = if (state.detectedScreenCount >= 2) state.detectedScreenCount else 3
+        val clampedHome = s.homeScreenIndex.coerceIn(1, effectivePages)
+        val clampedPreview = previewIndex.coerceIn(1, effectivePages)
+        val homeFraction = (clampedHome - 1).toDouble() / (effectivePages - 1).toDouble()
+        val targetFraction = (clampedPreview - 1).toDouble() / (effectivePages - 1).toDouble()
+        val signedSpan = if (s.scrollReverse) -s.scrollSpanDeg else s.scrollSpanDeg
+        renderer.yawD = (targetFraction - homeFraction) * signedSpan
     }
 
     fun onQualityChanged(mode: QualityMode) {
