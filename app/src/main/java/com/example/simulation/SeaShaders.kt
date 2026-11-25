@@ -15,7 +15,7 @@ precision highp float;
 precision mediump float;
 #endif
 uniform vec2 uRes,uTilt;
-uniform float uTime,uCloud,uWind,uRain,uFog,uFlash,uMoonPh,uMoonL,uStar,uWDir,uStarRot,uBow,uBolt,uShip,uNight;
+uniform float uTime,uCloud,uWind,uRain,uFog,uFlash,uMoonPh,uMoonL,uStar,uWDir,uStarRot,uBow,uBolt,uShip,uNight,uVivid;
 uniform vec3 uObj,uLook,uLH,uCloudLayers;uniform sampler2D uOv;
 uniform vec3 uSun,uSunL,uSunD,uMoon,uAmb,uPole;
 uniform sampler2D uSky,uNrm;
@@ -38,12 +38,17 @@ float milky(vec3 rd){vec3 q=rotAxis(rd,uPole,uStarRot);float band=exp(-pow(dot(q
  return band*(.35+.65*fbm(q.xz*5.+q.y*3.))*.5;}
 vec3 skyBase(vec3 rd){
  vec3 c=lut(rd);
+ if(uVivid>.5){
+  float bl=dot(c,vec3(.30,.59,.11));
+  c=mix(vec3(bl),c,1.35);
+ }
  float dayW=clamp((uSun.y+.04)/.20,0.,1.);
  float ov=clamp((max(uCloud,uCloudLayers.y)-.25)*1.25,0.,1.)*dayW;
  if(ov>.01){
   float lum=max(dot(c,vec3(.30,.59,.11)),dot(uAmb,vec3(.33))*1.6+.14);
-  vec3 coolOv=vec3(.86,.91,.96)*lum*(.82+.32*smoothstep(0.,.65,rd.y));
-  coolOv*=1.-.42*uRain;
+  vec3 tint=mix(vec3(.86,.91,.96),vec3(.80,.89,1.0),uVivid);
+  vec3 coolOv=tint*lum*(.82+.36*smoothstep(0.,.65,rd.y));
+  coolOv*=1.-.40*uRain;
   c=mix(c,coolOv,ov*.82);
  }
  return c;}
@@ -63,6 +68,7 @@ vec4 clouds(vec3 rd){
  float a=clamp(max(aMid,aLow*1.05),0.,1.)*m;
  float d2=fbm((p+uSun.xz*.06)*1.4);
  float lit=clamp(.64+(f1-d2)*4.6,0.,1.);
+ if(uVivid>.5){lit=smoothstep(.08,.94,lit);}
  float thick=clamp(max((dMid-thrMid)*2.2,(dLow-thrLow)*2.8),0.,1.);
  float dayW=clamp((uSun.y+.03)/.20,0.,1.);
  float sunLum=dot(uSunL,vec3(.30,.59,.11));
@@ -70,9 +76,14 @@ vec4 clouds(vec3 rd){
  float sunsetWarmth=smoothstep(.38,.02,uSun.y)*(1.-smoothstep(.40,.80,uCloud));
  vec3 cloudSun=mix(neutralSun,uSunL,sunsetWarmth);
  float ambLum=dot(uAmb,vec3(.30,.59,.11));
- vec3 neutralAmb=mix(uAmb,vec3(.78,.83,.90)*max(ambLum,.18*dayW),dayW*clamp(uCloud*1.35,0.,1.));
+ vec3 coolSlate=mix(vec3(.78,.83,.90),vec3(.66,.76,.92),uVivid);
+ vec3 neutralAmb=mix(uAmb,coolSlate*max(ambLum,.18*dayW),dayW*clamp(uCloud*1.35,0.,1.));
  vec3 under=neutralAmb*(.95-.26*thick-.12*lowCov*smoothstep(.2,.9,rd.y));
  vec3 topCol=mix(neutralAmb*1.08,cloudSun,.75)*lit*(1.-.42*thick);
+ if(uVivid>.5){
+  topCol=mix(topCol,vec3(1.,.99,.97)*max(dot(topCol,vec3(.33)),.32*dayW),.30*dayW);
+  topCol*=1.16;
+ }
  vec3 col=mix(under,topCol,.42+.58*lit);
  col*=1.-.50*uRain;
  return vec4(col,a);}
@@ -173,7 +184,9 @@ vec3 sea(vec3 ro,vec3 rd){
  float cloudOcc=1.-uCloud*.8;
  refl+=uSunD*.012*pow(max(dot(r,uSun),0.),900.)*cloudOcc+uSunL*.15*pow(max(dot(r,uSun),0.),40.)*cloudOcc;
  float sss=clamp(h0*.7+.45,0.,1.);
- vec3 body=(vec3(.01,.05,.075)+vec3(.04,.16,.13)*sss)*(uAmb*2.4*(1.-.4*uCloud-.35*uRain)+uSunL*max(dot(n,uSun),0.)*.35);
+ vec3 deepWater=mix(vec3(.01,.05,.075),vec3(.006,.075,.14),uVivid);
+ vec3 glowWater=mix(vec3(.04,.16,.13),vec3(.035,.26,.23),uVivid);
+ vec3 body=(deepWater+glowWater*sss)*(uAmb*2.4*(1.-.4*uCloud-.35*uRain)+uSunL*max(dot(n,uSun),0.)*.35);
  vec3 col=mix(body,refl,F);
  vec2 wd=vec2(cos(uWDir),sin(uWDir));
  float fs=texture2D(uNrm,vec2(dot(p.xz,wd)*.09-uTime*.07,dot(p.xz,vec2(-wd.y,wd.x))*.36)).b;
@@ -211,7 +224,13 @@ void main(){
  c=aces(c);c=pow(c,vec3(1./2.2));
  {vec4 ov=texture2D(uOv,vec2(gl_FragCoord.x/uRes.x,1.-gl_FragCoord.y/uRes.y));c=c*(1.-ov.a)+ov.rgb;}
  c+=vec3(.8,.85,.95)*rainL(uv)*uRain*.55;
- c=mix(c,c*c*(3.-2.*c),.25);
+ if(uVivid>.5){
+  float vl=dot(c,vec3(.299,.587,.114));
+  c=mix(vec3(vl),c,1.30);
+  c=mix(c,c*c*(3.-2.*c),.38);
+ }else{
+  c=mix(c,c*c*(3.-2.*c),.25);
+ }
  c+=(hash(gl_FragCoord.xy+fract(uTime)*91.)-.5)*.02;
  c*=1.-.28*smoothstep(.5,1.15,length(uv*vec2(.9,1.)));
  gl_FragColor=vec4(clamp(c,0.,1.),1.);
@@ -224,7 +243,7 @@ precision highp float;
 #else
 precision mediump float;
 #endif
-uniform sampler2D uScene;uniform vec2 uRes,uSceneRes;uniform float uTime,uRain,uFog,uDrops;
+uniform sampler2D uScene,uHud;uniform vec2 uRes,uSceneRes;uniform vec4 uHudRect;uniform float uTime,uRain,uFog,uDrops;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 vec3 bicubic(vec2 uv){
  vec2 tc=uv*uSceneRes,tc1=floor(tc-.5)+.5,f=tc-tc1;
@@ -280,6 +299,14 @@ void main(){
  c*=1.-edge*.42;c+=vec3(.9,.95,1.)*caus*.22*(.35+lum);c+=vec3(1.)*hl*.55;c=mix(c,c*1.2+.03,tr*.8);
  c=mix(c,vec3(dot(c,vec3(.33)))*1.04+.01,uFog*.22);
  c+=(hash(gl_FragCoord.xy)+hash(gl_FragCoord.xy+17.3)-1.)/255.;
+ c=clamp(c,0.,1.);
+ if(uHudRect.z>0.001){
+  vec2 huv=(uv-uHudRect.xy)/uHudRect.zw;
+  if(huv.x>=0.&&huv.x<=1.&&huv.y>=0.&&huv.y<=1.){
+   vec4 hud=texture2D(uHud,vec2(huv.x,1.-huv.y));
+   c=c*(1.-hud.a)+hud.rgb;
+  }
+ }
  gl_FragColor=vec4(clamp(c,0.,1.),1.);}
 """
 }

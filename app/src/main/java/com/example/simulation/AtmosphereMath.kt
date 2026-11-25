@@ -388,6 +388,41 @@ object AtmosphereMath {
         )
     }
 
+    data class CameraViewParams(
+        val sun: DoubleArray,
+        val moon: DoubleArray,
+        val pole: DoubleArray,
+        val lh: Double,
+        val lhFixedB: Double,
+        val wdir: Double,
+    )
+
+    fun computeCameraViewParams(
+        t: Double,
+        lat: Double,
+        doy: Int,
+        camEff: Double,
+        windDir: Double,
+        nowMs: Long,
+    ): CameraViewParams {
+        val camAz = (camEff - 180.0) * D
+        val sp = solar(t, lat, doy)
+        val sun = camVec(sp.el, sp.az, camAz)
+        val ph = moonPhase(nowMs)
+        val ha = (t - 12.0) * 15.0 * D - ph * 2.0 * PI
+        val la = lat * D
+        val dm = 5.0 * D
+        val sE = sin(la) * sin(dm) + cos(la) * cos(dm) * cos(ha)
+        val mEl = asin(clamp(sE, -1.0, 1.0))
+        val mAz = atan2(sin(ha), cos(ha) * sin(la) - tan(dm) * cos(la))
+        val moon = camVec(mEl, mAz, camAz)
+        val pole = camVec(la, PI, camAz)
+        val lh = (((268.0 - camEff + 540.0) % 360.0 + 360.0) % 360.0 - 180.0) * D
+        val lhFixedB = (((138.0 - camEff - 90.0 + 540.0) % 360.0 + 360.0) % 360.0 - 180.0) * D
+        val wdir = (90.0 - (windDir - camEff)) * D
+        return CameraViewParams(sun = sun, moon = moon, pole = pole, lh = lh, lhFixedB = lhFixedB, wdir = wdir)
+    }
+
     fun skyAmbient(lut: ByteArray): DoubleArray {
         val o = ((LH - 1) * LW + LW / 2) * 4
         return DoubleArray(3) { k ->

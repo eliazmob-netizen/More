@@ -6,10 +6,13 @@ import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
+import android.os.Build
 import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
 import android.view.MotionEvent
 import android.view.SurfaceHolder
+import android.view.ViewConfiguration
+import android.view.WindowInsets
 import com.example.data.PreferencesRepository
 import com.example.data.SavedPreferences
 import com.example.data.WeatherRepository
@@ -59,7 +62,12 @@ class SeaWallpaperService : WallpaperService() {
         private var surfaceWidth = 1080
         private var downX = 0f
         private var downY = 0f
+        private var bestDx = 0f
+        private var bestDy = 0f
         private var swipeConsumed = false
+        private val touchSlop by lazy {
+            ViewConfiguration.get(applicationContext).scaledTouchSlop.toFloat().coerceAtLeast(16f)
+        }
 
         private var lastWeatherFetchMs = 0L
         private var weatherJob: Job? = null
@@ -85,11 +93,33 @@ class SeaWallpaperService : WallpaperService() {
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(false)
+            renderer.safeTopPx = fallbackStatusBarHeightPx()
 
             prefsJob = engineScope.launch {
                 prefsRepo.preferencesFlow.collect { saved ->
                     applyPreferences(saved)
                 }
+            }
+        }
+
+        private fun fallbackStatusBarHeightPx(): Int {
+            val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            return if (resId > 0) resources.getDimensionPixelSize(resId) else (28 * resources.displayMetrics.density).roundToInt()
+        }
+
+        override fun onApplyWindowInsets(insets: WindowInsets?) {
+            super.onApplyWindowInsets(insets)
+            if (insets == null) return
+            val top = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout(),
+                ).top
+            } else {
+                @Suppress("DEPRECATION")
+                insets.systemWindowInsetTop
+            }
+            if (top > 0) {
+                renderer.safeTopPx = top
             }
         }
 
@@ -157,6 +187,13 @@ class SeaWallpaperService : WallpaperService() {
                     homeScreenIndex = saved.homeScreenIndex,
                     scrollSpanDeg = saved.scrollSpanDeg,
                     scrollReverse = saved.scrollReverse,
+                    colorProfile = saved.colorProfile,
+                    showWeatherHud = saved.showWeatherHud,
+                    weatherHudTopPct = saved.weatherHudTopPct,
+                    cityName = saved.cityName.ifBlank { currentState.cityName },
+                    temperatureC = currentState.temperatureC ?: saved.temperatureC,
+                    weatherCode = if (currentState.weatherCode >= 0) currentState.weatherCode else saved.weatherCode,
+                    precipitationMm = if (lastWeatherFetchMs > 0L) currentState.precipitationMm else saved.precipitationMm,
                     realTime = true,
                     fastDay = false,
                 )
@@ -193,6 +230,13 @@ class SeaWallpaperService : WallpaperService() {
                     homeScreenIndex = saved.homeScreenIndex,
                     scrollSpanDeg = saved.scrollSpanDeg,
                     scrollReverse = saved.scrollReverse,
+                    colorProfile = saved.colorProfile,
+                    showWeatherHud = saved.showWeatherHud,
+                    weatherHudTopPct = saved.weatherHudTopPct,
+                    cityName = saved.cityName,
+                    temperatureC = saved.temperatureC,
+                    weatherCode = saved.weatherCode,
+                    precipitationMm = saved.precipitationMm,
                 )
             }
 
@@ -305,6 +349,9 @@ class SeaWallpaperService : WallpaperService() {
                     fog = snap.fog,
                     storm = snap.storm,
                     windDir = snap.windDir,
+                    temperatureC = snap.temperatureC,
+                    weatherCode = snap.weatherCode,
+                    precipitationMm = snap.precipitationMm,
                     realTime = true,
                     fastDay = false,
                 )
@@ -383,7 +430,7 @@ class SeaWallpaperService : WallpaperService() {
                     val first = firstNativeOffsetSeen
                     if (first == null) {
                         firstNativeOffsetSeen = clamped
-                    } else if (abs(clamped - first) > 0.02f) {
+                    } else if (abs(clamped - first) > 0.12f) {
                         hasNativeLauncherScroll = true
                     }
 
@@ -419,28 +466,43 @@ class SeaWallpaperService : WallpaperService() {
                     MotionEvent.ACTION_DOWN -> {
                         downX = event.x
                         downY = event.y
+                        bestDx = 0f
+                        bestDy = 0f
                         swipeConsumed = false
                     }
-                    MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    MotionEvent.ACTION_MOVE -> {
                         if (swipeConsumed) return
                         val dx = event.x - downX
                         val dy = event.y - downY
-                        val threshold = if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                            (surfaceWidth * 0.045f).coerceAtLeast(40f)
-                        } else {
-                            (surfaceWidth * 0.14f).coerceAtLeast(90f)
-                        }
-                        val slopeRatio = if (event.actionMasked == MotionEvent.ACTION_CANCEL) 1.6f else 1.35f
-                        if (abs(dx) > threshold && abs(dx) > abs(dy) * slopeRatio) {
+                        if (abs(dx) > abs(bestDx)) bestDx = dx
+                        if (abs(dy) > abs(bestDy)) bestDy = dy
+                        val moveThreshold = maxOf(touchSlop * 1.15f, 26f)
+                        if (abs(dx) >= moveThreshold && abs(dx) > abs(dy) * 1.15f) {
                             swipeConsumed = true
-                            val pages = effectivePageCount()
-                            val deltaPage = if (dx < 0f) 1 else -1
-                            virtualPage = (virtualPage + deltaPage).coerceIn(0, pages - 1)
-                            targetVirtualOffset = virtualPage.toDouble() / (pages - 1).toDouble()
+                            stepVirtualPage(dx)
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (swipeConsumed) return
+                        val dx = event.x - downX
+                        val dy = event.y - downY
+                        val effDx = if (abs(dx) >= abs(bestDx)) dx else bestDx
+                        val effDy = if (abs(dy) >= abs(bestDy)) dy else bestDy
+                        val endThreshold = maxOf(touchSlop * 0.75f, 18f)
+                        if (abs(effDx) >= endThreshold && abs(effDx) > abs(effDy) * 1.15f) {
+                            swipeConsumed = true
+                            stepVirtualPage(effDx)
                         }
                     }
                 }
             }
+        }
+
+        private fun stepVirtualPage(dx: Float) {
+            val pages = effectivePageCount()
+            val deltaPage = if (dx < 0f) 1 else -1
+            virtualPage = (virtualPage + deltaPage).coerceIn(0, pages - 1)
+            targetVirtualOffset = virtualPage.toDouble() / (pages - 1).toDouble()
         }
 
         override fun onDestroy() {

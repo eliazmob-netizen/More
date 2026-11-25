@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -11,8 +12,11 @@ import android.os.Build
 import android.os.CancellationSignal
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Locale
 import kotlin.coroutines.resume
 
 class LocationHelper(private val context: Context) {
@@ -106,5 +110,36 @@ class LocationHelper(private val context: Context) {
             }
         }
         return fresh?.let { it.latitude to it.longitude }
+    }
+
+    suspend fun resolveCityName(lat: Double, lon: Double): String? {
+        if (!Geocoder.isPresent()) return null
+        val geocoder = Geocoder(context, Locale("ru"))
+        return withTimeoutOrNull(4000L) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine { cont ->
+                    try {
+                        geocoder.getFromLocation(lat, lon, 1) { addresses ->
+                            val addr = addresses.firstOrNull()
+                            val name = addr?.locality ?: addr?.subAdminArea ?: addr?.adminArea
+                            if (cont.isActive) cont.resume(name?.takeIf { it.isNotBlank() })
+                        }
+                    } catch (_: Exception) {
+                        if (cont.isActive) cont.resume(null)
+                    }
+                }
+            } else {
+                withContext(Dispatchers.IO) {
+                    try {
+                        @Suppress("DEPRECATION")
+                        val addr = geocoder.getFromLocation(lat, lon, 1)?.firstOrNull()
+                        (addr?.locality ?: addr?.subAdminArea ?: addr?.adminArea)
+                            ?.takeIf { it.isNotBlank() }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        }
     }
 }

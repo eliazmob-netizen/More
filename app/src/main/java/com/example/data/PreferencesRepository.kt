@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.simulation.ColorProfile
 import com.example.simulation.LighthouseMode
 import com.example.simulation.QualityMode
 import com.example.simulation.SeaState
@@ -48,6 +49,13 @@ data class SavedPreferences(
     val scrollSpanDeg: Double = 90.0,
     val scrollReverse: Boolean = false,
     val detectedScreenCount: Int = 0,
+    val colorProfile: ColorProfile = ColorProfile.VIVID,
+    val showWeatherHud: Boolean = true,
+    val weatherHudTopPct: Double = 0.14,
+    val cityName: String = "",
+    val temperatureC: Double? = null,
+    val weatherCode: Int = -1,
+    val precipitationMm: Double = 0.0,
 )
 
 class PreferencesRepository(private val context: Context) {
@@ -83,6 +91,13 @@ class PreferencesRepository(private val context: Context) {
         val SCROLL_SPAN_DEG = doublePreferencesKey("sea_scroll_span_deg")
         val SCROLL_REVERSE = booleanPreferencesKey("sea_scroll_reverse")
         val DETECTED_SCREEN_COUNT = intPreferencesKey("sea_detected_screen_count")
+        val COLOR_PROFILE = stringPreferencesKey("sea_color_profile")
+        val SHOW_WEATHER_HUD = booleanPreferencesKey("sea_show_weather_hud")
+        val WEATHER_HUD_TOP_PCT = doublePreferencesKey("sea_weather_hud_top_pct")
+        val CITY_NAME = stringPreferencesKey("sea_city_name")
+        val TEMPERATURE_C = doublePreferencesKey("sea_temperature_c")
+        val WEATHER_CODE = intPreferencesKey("sea_weather_code")
+        val PRECIPITATION_MM = doublePreferencesKey("sea_precipitation_mm")
     }
 
     val preferencesFlow: Flow<SavedPreferences> = context.seaDataStore.data.map { prefs ->
@@ -95,6 +110,9 @@ class PreferencesRepository(private val context: Context) {
         val scrollMode = prefs[Keys.SCROLL_MODE]?.let { name ->
             WallpaperScrollMode.entries.firstOrNull { it.name == name }
         } ?: WallpaperScrollMode.FIXED
+        val colorProfile = prefs[Keys.COLOR_PROFILE]?.let { name ->
+            ColorProfile.entries.firstOrNull { it.name == name }
+        } ?: ColorProfile.VIVID
         SavedPreferences(
             autoMode = prefs[Keys.AUTO_MODE] ?: false,
             lat = prefs[Keys.LAT] ?: 55.75,
@@ -127,6 +145,13 @@ class PreferencesRepository(private val context: Context) {
             scrollSpanDeg = (prefs[Keys.SCROLL_SPAN_DEG] ?: 90.0).coerceIn(20.0, 180.0),
             scrollReverse = prefs[Keys.SCROLL_REVERSE] ?: false,
             detectedScreenCount = (prefs[Keys.DETECTED_SCREEN_COUNT] ?: 0).coerceAtLeast(0),
+            colorProfile = colorProfile,
+            showWeatherHud = prefs[Keys.SHOW_WEATHER_HUD] ?: true,
+            weatherHudTopPct = (prefs[Keys.WEATHER_HUD_TOP_PCT] ?: 0.14).coerceIn(0.02, 0.60),
+            cityName = prefs[Keys.CITY_NAME] ?: "",
+            temperatureC = prefs[Keys.TEMPERATURE_C],
+            weatherCode = prefs[Keys.WEATHER_CODE] ?: -1,
+            precipitationMm = prefs[Keys.PRECIPITATION_MM] ?: 0.0,
         )
     }
 
@@ -181,6 +206,17 @@ class PreferencesRepository(private val context: Context) {
             prefs[Keys.HOME_SCREEN_INDEX] = state.homeScreenIndex
             prefs[Keys.SCROLL_SPAN_DEG] = state.scrollSpanDeg
             prefs[Keys.SCROLL_REVERSE] = state.scrollReverse
+            prefs[Keys.COLOR_PROFILE] = state.colorProfile.name
+            prefs[Keys.SHOW_WEATHER_HUD] = state.showWeatherHud
+            prefs[Keys.WEATHER_HUD_TOP_PCT] = state.weatherHudTopPct
+            prefs[Keys.CITY_NAME] = state.cityName
+            if (state.temperatureC != null) {
+                prefs[Keys.TEMPERATURE_C] = state.temperatureC
+            } else {
+                prefs.remove(Keys.TEMPERATURE_C)
+            }
+            prefs[Keys.WEATHER_CODE] = state.weatherCode
+            prefs[Keys.PRECIPITATION_MM] = state.precipitationMm
         }
     }
 }

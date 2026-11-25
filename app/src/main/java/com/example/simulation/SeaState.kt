@@ -1,9 +1,14 @@
 package com.example.simulation
 
 enum class QualityMode(val scale: Float, val targetFps: Int) {
-    AUTO(0.6f, 30),
-    ECO(0.5f, 20),
-    MAX(1.0f, 30),
+    AUTO(0.6f, 45),
+    ECO(0.5f, 24),
+    MAX(1.0f, 60),
+}
+
+enum class ColorProfile {
+    REAL,
+    VIVID,
 }
 
 enum class WeatherPreset(
@@ -88,6 +93,13 @@ data class SeaState(
     val homeScreenIndex: Int = 1,
     val scrollSpanDeg: Double = 90.0,
     val scrollReverse: Boolean = false,
+    val colorProfile: ColorProfile = ColorProfile.VIVID,
+    val showWeatherHud: Boolean = true,
+    val weatherHudTopPct: Double = 0.14,
+    val cityName: String = "",
+    val temperatureC: Double? = null,
+    val weatherCode: Int = -1,
+    val precipitationMm: Double = 0.0,
     val yawG: Double = 0.0,
     val yawD: Double = 0.0,
     val pitG: Double = 0.0,

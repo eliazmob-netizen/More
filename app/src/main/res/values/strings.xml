@@ -38,6 +38,12 @@
     <string name="label_preview_screen">4. Проверить кадр на каждом экране</string>
     <string name="scroll_dir_right">Сдвиг: вправо</string>
     <string name="scroll_dir_left">Сдвиг: влево</string>
+    <string name="color_profile_title">Цвета и контраст</string>
+    <string name="color_profile_vivid">Красота</string>
+    <string name="color_profile_real">Реальные цвета</string>
+    <string name="label_weather_hud">Погода на обоях</string>
+    <string name="desc_weather_hud">Город, температура, время суток и осадки</string>
+    <string name="label_weather_hud_top">Высота инфо</string>
     <string name="toggle_ship">Корабль</string>
     <string name="toggle_birds">Чайки</string>
     <string name="toggle_drops">Капли на экране</string>

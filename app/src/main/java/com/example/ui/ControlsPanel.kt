@@ -35,9 +35,11 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -67,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.simulation.AtmosphereMath
+import com.example.simulation.ColorProfile
 import com.example.simulation.LighthouseMode
 import com.example.simulation.QualityMode
 import com.example.simulation.TimePreset
@@ -118,6 +121,9 @@ fun ControlsPanel(
     onToggleScrollReverse: (Boolean) -> Unit,
     onPreviewScreen: (Int?) -> Unit,
     onSelectTimeOnlyMode: () -> Unit,
+    onSelectColorProfile: (ColorProfile) -> Unit,
+    onToggleWeatherHud: (Boolean) -> Unit,
+    onWeatherHudTopChanged: (Double) -> Unit,
     onCityQueryChanged: (String) -> Unit,
     onSearchCity: () -> Unit,
     onQualityChanged: (QualityMode) -> Unit,
@@ -242,6 +248,30 @@ fun ControlsPanel(
                 }
             }
 
+            // Color style: Красота vs Реальные цвета
+            Text(
+                text = stringResource(R.string.color_profile_title),
+                style = MaterialTheme.typography.labelMedium,
+                color = SeaFoamInk.copy(alpha = 0.85f),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                PresetChip(
+                    label = stringResource(R.string.color_profile_vivid),
+                    selected = s.colorProfile == ColorProfile.VIVID,
+                    onClick = { onSelectColorProfile(ColorProfile.VIVID) },
+                    testTag = "color_profile_vivid",
+                )
+                PresetChip(
+                    label = stringResource(R.string.color_profile_real),
+                    selected = s.colorProfile == ColorProfile.REAL,
+                    onClick = { onSelectColorProfile(ColorProfile.REAL) },
+                    testTag = "color_profile_real",
+                )
+            }
+
             HorizontalDivider(color = GlassBorder)
 
             // Sliders
@@ -353,6 +383,71 @@ fun ControlsPanel(
                         modifier = Modifier.testTag("gyro_settings_switch"),
                     )
                 }
+            }
+
+            // Weather HUD overlay on wallpaper/screen
+            Surface(
+                onClick = { onToggleWeatherHud(!s.showWeatherHud) },
+                shape = RoundedCornerShape(14.dp),
+                color = if (s.showWeatherHud) OceanBlue.copy(alpha = 0.22f) else ChipBackground,
+                border = BorderStroke(
+                    1.dp,
+                    if (s.showWeatherHud) SkyCyan.copy(alpha = 0.6f) else GlassBorder,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("weather_hud_settings_row"),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.WbSunny,
+                        contentDescription = null,
+                        tint = if (s.showWeatherHud) SkyCyan else SeaFoamInk.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.label_weather_hud),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = SeaFoamInk,
+                        )
+                        Text(
+                            text = stringResource(R.string.desc_weather_hud),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SeaFoamInk.copy(alpha = 0.7f),
+                        )
+                    }
+                    Switch(
+                        checked = s.showWeatherHud,
+                        onCheckedChange = onToggleWeatherHud,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = OceanBlue,
+                            uncheckedThumbColor = SeaFoamInk.copy(alpha = 0.8f),
+                            uncheckedTrackColor = ChipBackground,
+                            uncheckedBorderColor = GlassBorder,
+                        ),
+                        modifier = Modifier.testTag("weather_hud_switch"),
+                    )
+                }
+            }
+
+            if (s.showWeatherHud) {
+                SeaSliderRow(
+                    label = stringResource(R.string.label_weather_hud_top),
+                    icon = Icons.Rounded.VerticalAlignTop,
+                    value = s.weatherHudTopPct.toFloat(),
+                    valueRange = 0.02f..0.55f,
+                    trailingText = "${(s.weatherHudTopPct * 100).roundToInt()}%",
+                    onValueChange = { onWeatherHudTopChanged(it.toDouble()) },
+                    testTag = "slider_weather_hud_top",
+                )
             }
 
             // Scene object & time mode toggles

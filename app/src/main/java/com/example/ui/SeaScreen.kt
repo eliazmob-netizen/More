@@ -25,12 +25,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -59,6 +61,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -83,6 +86,9 @@ fun SeaScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val safeTopPx = WindowInsets.safeDrawing.getTop(density)
+    viewModel.renderer.safeTopPx = safeTopPx
 
     BackHandler(enabled = uiState.isFramingHomeCenter || uiState.isControlsOpen) {
         if (uiState.isFramingHomeCenter) {
@@ -381,6 +387,9 @@ fun SeaScreen(
                 onScrollSpanChanged = viewModel::onScrollSpanChanged,
                 onToggleScrollReverse = viewModel::onToggleScrollReverse,
                 onPreviewScreen = viewModel::onPreviewScreen,
+                onSelectColorProfile = viewModel::onSelectColorProfile,
+                onToggleWeatherHud = viewModel::onToggleWeatherHud,
+                onWeatherHudTopChanged = viewModel::onWeatherHudTopChanged,
                 onCityQueryChanged = viewModel::onCityQueryChanged,
                 onSearchCity = viewModel::onSearchCity,
                 onQualityChanged = viewModel::onQualityChanged,

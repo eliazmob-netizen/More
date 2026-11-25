@@ -49,6 +49,8 @@ class SeaRenderer(
     var yawD: Double = 0.0
     @Volatile
     var pitD: Double = 0.0
+    @Volatile
+    var safeTopPx: Int = 0
 
     private val dirtyLut = AtomicBoolean(true)
     private val pendingSpawnNearShip = AtomicBoolean(false)
@@ -63,6 +65,7 @@ class SeaRenderer(
     private var fbo = 0
     private var ovTex = 0
     private var nrmTex = 0
+    private var hudTex = 0
 
     private val u1 = HashMap<String, Int>()
     private val u2 = HashMap<String, Int>()
@@ -107,6 +110,7 @@ class SeaRenderer(
     private var ship: ShipState? = null
     private var nextAutoShipMs = 0L
     private val overlayRenderer = OverlayCanvasRenderer()
+    private val weatherHudRenderer = WeatherHudRenderer()
 
     fun updateConfig(state: SeaState, timeRevision: Long, qualityRevision: Long) {
         config = RenderConfig(state, timeRevision, qualityRevision)
@@ -165,21 +169,22 @@ class SeaRenderer(
             u1.clear()
             listOf(
                 "uRes", "uTilt", "uTime", "uCloud", "uWind", "uRain", "uFog", "uFlash",
-                "uMoonPh", "uMoonL", "uStar", "uWDir", "uStarRot", "uBow", "uBolt", "uNight",
+                "uMoonPh", "uMoonL", "uStar", "uWDir", "uStarRot", "uBow", "uBolt", "uNight", "uVivid",
                 "uObj", "uLook", "uLH", "uOv", "uNrm", "uSun", "uSunL", "uSunD", "uMoon",
                 "uAmb", "uPole", "uSky", "uCloudLayers",
             ).forEach { name -> u1[name] = GLES20.glGetUniformLocation(p1, name) }
 
             u2.clear()
-            listOf("uScene", "uRes", "uSceneRes", "uTime", "uRain", "uFog", "uDrops")
+            listOf("uScene", "uHud", "uRes", "uSceneRes", "uHudRect", "uTime", "uRain", "uFog", "uDrops")
                 .forEach { name -> u2[name] = GLES20.glGetUniformLocation(p2, name) }
 
-            val texs = IntArray(4)
-            GLES20.glGenTextures(4, texs, 0)
+            val texs = IntArray(5)
+            GLES20.glGenTextures(5, texs, 0)
             lutTex = texs[0]
             fbTex = texs[1]
             ovTex = texs[2]
             nrmTex = texs[3]
+            hudTex = texs[4]
 
             val fbos = IntArray(1)
             GLES20.glGenFramebuffers(1, fbos, 0)
@@ -197,6 +202,7 @@ class SeaRenderer(
             setupClampLinear(GLES20.GL_TEXTURE0, lutTex)
             setupClampLinear(GLES20.GL_TEXTURE1, fbTex)
             setupClampLinear(GLES20.GL_TEXTURE2, ovTex)
+            setupClampLinear(GLES20.GL_TEXTURE4, hudTex)
 
             val nrmBytes = AtmosphereMath.makeNrm()
             val nrmBuf = ByteBuffer.allocateDirect(nrmBytes.size).order(ByteOrder.nativeOrder()).put(nrmBytes)
@@ -425,6 +431,15 @@ class SeaRenderer(
         GLES20.glActiveTexture(GLES20.GL_TEXTURE3)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, nrmTex)
 
+        val liveView = AtmosphereMath.computeCameraViewParams(
+            t = simHours,
+            lat = s.lat,
+            doy = AtmosphereMath.doyNow(),
+            camEff = camEff,
+            windDir = s.windDir,
+            nowMs = System.currentTimeMillis(),
+        )
+
         GLES20.glUniform2f(u1.getValue("uRes"), sw.toFloat(), sh.toFloat())
         GLES20.glUniform2f(u1.getValue("uTilt"), effectiveTiltX.toFloat(), effectiveTiltY.toFloat())
         GLES20.glUniform1f(u1.getValue("uTime"), timeSec)
@@ -436,18 +451,19 @@ class SeaRenderer(
         GLES20.glUniform1f(u1.getValue("uMoonPh"), p.moonPh.toFloat())
         GLES20.glUniform1f(u1.getValue("uMoonL"), p.moonL.toFloat())
         GLES20.glUniform1f(u1.getValue("uStar"), p.star.toFloat())
-        GLES20.glUniform1f(u1.getValue("uWDir"), p.wdir.toFloat())
+        GLES20.glUniform1f(u1.getValue("uWDir"), liveView.wdir.toFloat())
         GLES20.glUniform1f(u1.getValue("uStarRot"), p.starRot.toFloat())
         GLES20.glUniform1f(u1.getValue("uBow"), p.bow.toFloat())
         GLES20.glUniform1f(u1.getValue("uBolt"), bolt.toFloat())
         GLES20.glUniform1f(u1.getValue("uNight"), p.night2.toFloat())
+        GLES20.glUniform1f(u1.getValue("uVivid"), if (s.colorProfile == ColorProfile.VIVID) 1f else 0f)
         GLES20.glUniform3fv(u1.getValue("uObj"), 1, p.obj, 0)
         GLES20.glUniform3f(u1.getValue("uLook"), pit.toFloat(), (roll * AtmosphereMath.D).toFloat(), 0f)
         GLES20.glUniform3f(
             u1.getValue("uLH"),
-            p.lh.toFloat(),
+            liveView.lh.toFloat(),
             p.lhMode.ordinal.toFloat(),
-            p.lhFixedB.toFloat(),
+            liveView.lhFixedB.toFloat(),
         )
         GLES20.glUniform3f(
             u1.getValue("uCloudLayers"),
@@ -455,21 +471,40 @@ class SeaRenderer(
             p.cloudMid.toFloat(),
             p.cloudHigh.toFloat(),
         )
-        GLES20.glUniform3f(u1.getValue("uSun"), p.sun[0].toFloat(), p.sun[1].toFloat(), p.sun[2].toFloat())
+        GLES20.glUniform3f(u1.getValue("uSun"), liveView.sun[0].toFloat(), liveView.sun[1].toFloat(), liveView.sun[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uSunL"), p.sunL[0].toFloat(), p.sunL[1].toFloat(), p.sunL[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uSunD"), p.sunD[0].toFloat(), p.sunD[1].toFloat(), p.sunD[2].toFloat())
-        GLES20.glUniform3f(u1.getValue("uMoon"), p.moon[0].toFloat(), p.moon[1].toFloat(), p.moon[2].toFloat())
+        GLES20.glUniform3f(u1.getValue("uMoon"), liveView.moon[0].toFloat(), liveView.moon[1].toFloat(), liveView.moon[2].toFloat())
         GLES20.glUniform3f(u1.getValue("uAmb"), p.amb[0].toFloat(), p.amb[1].toFloat(), p.amb[2].toFloat())
-        GLES20.glUniform3f(u1.getValue("uPole"), p.pole[0].toFloat(), p.pole[1].toFloat(), p.pole[2].toFloat())
+        GLES20.glUniform3f(u1.getValue("uPole"), liveView.pole[0].toFloat(), liveView.pole[1].toFloat(), liveView.pole[2].toFloat())
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 3)
 
-        // Pass 2: Bicubic upscale, sharpen, glass droplets, dither to screen
+        // Pass 2: Bicubic upscale, sharpen, glass droplets, crisp weather HUD, dither to screen
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, cvWidth, cvHeight)
         GLES20.glUseProgram(p2)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fbTex)
         GLES20.glUniform1i(u2.getValue("uScene"), 1)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE4)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, hudTex)
+        GLES20.glUniform1i(u2.getValue("uHud"), 4)
+        if (s.showWeatherHud && cvWidth > 120 && cvHeight > 120) {
+            val hud = weatherHudRenderer.renderIfNeeded(cvWidth, s, simHours, p.elDeg)
+            if (hud.changed) {
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, hud.bitmap, 0)
+            }
+            val wNorm = hud.widthPx.toFloat() / cvWidth.toFloat()
+            val hNorm = hud.heightPx.toFloat() / cvHeight.toFloat()
+            val x0Norm = ((cvWidth - hud.widthPx) * 0.5f) / cvWidth.toFloat()
+            val topBase = safeTopPx.toFloat().coerceAtLeast(cvHeight * 0.03f)
+            val usableH = (cvHeight - topBase - hud.heightPx).coerceAtLeast(1f)
+            val topPx = topBase + usableH * s.weatherHudTopPct.toFloat().coerceIn(0.02f, 0.60f)
+            val y0BottomNorm = (1f - (topPx + hud.heightPx) / cvHeight.toFloat()).coerceIn(0.02f, (0.98f - hNorm).coerceAtLeast(0.02f))
+            GLES20.glUniform4f(u2.getValue("uHudRect"), x0Norm, y0BottomNorm, wNorm, hNorm)
+        } else {
+            GLES20.glUniform4f(u2.getValue("uHudRect"), 0f, 0f, 0f, 0f)
+        }
         GLES20.glUniform2f(u2.getValue("uRes"), cvWidth.toFloat(), cvHeight.toFloat())
         GLES20.glUniform2f(u2.getValue("uSceneRes"), sw.toFloat(), sh.toFloat())
         GLES20.glUniform1f(u2.getValue("uTime"), timeSec)

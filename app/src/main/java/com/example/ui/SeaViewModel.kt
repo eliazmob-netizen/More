@@ -10,6 +10,7 @@ import com.example.data.PreferencesRepository
 import com.example.data.WeatherRepository
 import com.example.sensors.OrientationController
 import com.example.simulation.AtmosphereMath
+import com.example.simulation.ColorProfile
 import com.example.simulation.FpsStats
 import com.example.simulation.LighthouseMode
 import com.example.simulation.QualityMode
@@ -162,6 +163,13 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                         homeScreenIndex = saved.homeScreenIndex,
                         scrollSpanDeg = saved.scrollSpanDeg,
                         scrollReverse = saved.scrollReverse,
+                        colorProfile = saved.colorProfile,
+                        showWeatherHud = saved.showWeatherHud,
+                        weatherHudTopPct = saved.weatherHudTopPct,
+                        cityName = saved.cityName,
+                        temperatureC = saved.temperatureC,
+                        weatherCode = saved.weatherCode,
+                        precipitationMm = saved.precipitationMm,
                     ),
                 )
             }
@@ -460,8 +468,15 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             prefsRepo.setAutoMode(true)
             val coords = if (!skipPermissionRequest) locationHelper.getCurrentCoordinates() else null
             if (coords != null) {
+                val resolvedCity = locationHelper.resolveCityName(coords.first, coords.second)
                 _uiState.update {
-                    it.copy(seaState = it.seaState.copy(lat = coords.first, lon = coords.second))
+                    it.copy(
+                        seaState = it.seaState.copy(
+                            lat = coords.first,
+                            lon = coords.second,
+                            cityName = resolvedCity ?: it.seaState.cityName,
+                        ),
+                    )
                 }
                 prefsRepo.setCoordinates(coords.first, coords.second)
             } else {
@@ -480,12 +495,18 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
         val current = _uiState.value.seaState
         try {
             val snap = weatherRepo.fetchWeather(current.lat, current.lon)
+            val resolvedCity = if (current.cityName.isBlank()) {
+                locationHelper.resolveCityName(current.lat, current.lon)
+            } else {
+                null
+            }
             timeRevision++
             val updatedHours = AtmosphereMath.hoursNow(snap.utcOffsetSeconds)
             _uiState.update { state ->
                 val nextSea = state.seaState.copy(
                     utcOffsetSeconds = snap.utcOffsetSeconds,
                     t = updatedHours,
+                    cityName = resolvedCity ?: state.seaState.cityName,
                     wind = snap.wind,
                     cloud = snap.cloud,
                     cloudLow = snap.cloudLow,
@@ -495,6 +516,9 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                     fog = snap.fog,
                     storm = snap.storm,
                     windDir = snap.windDir,
+                    temperatureC = snap.temperatureC,
+                    weatherCode = snap.weatherCode,
+                    precipitationMm = snap.precipitationMm,
                     realTime = true,
                     fastDay = false,
                 )
@@ -541,6 +565,7 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
                         seaState = it.seaState.copy(
                             lat = res.latitude,
                             lon = res.longitude,
+                            cityName = res.name,
                             autoMode = true,
                             realTime = true,
                             fastDay = false,
@@ -972,6 +997,31 @@ class SeaViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(seaState = it.seaState.copy(qualityMode = mode))
         }
         pushStateToRenderer()
+    }
+
+    fun onSelectColorProfile(profile: ColorProfile) {
+        _uiState.update {
+            it.copy(seaState = it.seaState.copy(colorProfile = profile))
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
+    fun onToggleWeatherHud(enabled: Boolean) {
+        _uiState.update {
+            it.copy(seaState = it.seaState.copy(showWeatherHud = enabled))
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = true)
+    }
+
+    fun onWeatherHudTopChanged(pct: Double) {
+        val clamped = pct.coerceIn(0.02, 0.60)
+        _uiState.update {
+            it.copy(seaState = it.seaState.copy(weatherHudTopPct = clamped))
+        }
+        pushStateToRenderer()
+        persistCurrentState(immediate = false)
     }
 
     override fun onCleared() {

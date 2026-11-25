@@ -22,6 +22,9 @@ data class WeatherSnapshot(
     val windDir: Double,
     val windSpeedKmh: Double,
     val cloudCoverPercent: Double,
+    val temperatureC: Double? = null,
+    val weatherCode: Int = 0,
+    val precipitationMm: Double = 0.0,
 )
 
 class WeatherRepository {
@@ -79,6 +82,9 @@ class WeatherRepository {
             windDir = (c.windDirection10m + 180.0) % 360.0,
             windSpeedKmh = c.windSpeed10m,
             cloudCoverPercent = c.cloudCover,
+            temperatureC = c.temperature2m,
+            weatherCode = w,
+            precipitationMm = c.precipitation,
         )
     }
 

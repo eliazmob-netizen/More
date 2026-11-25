@@ -14,6 +14,7 @@ data class ForecastResponse(
 @JsonClass(generateAdapter = true)
 data class CurrentWeather(
     @Json(name = "weather_code") val weatherCode: Int = 0,
+    @Json(name = "temperature_2m") val temperature2m: Double? = null,
     @Json(name = "cloud_cover") val cloudCover: Double = 0.0,
     @Json(name = "cloud_cover_low") val cloudCoverLow: Double? = null,
     @Json(name = "cloud_cover_mid") val cloudCoverMid: Double? = null,
@@ -40,7 +41,7 @@ interface OpenMeteoForecastApi {
     suspend fun getCurrentWeather(
         @Query("latitude") latitude: Double,
         @Query("longitude") longitude: Double,
-        @Query("current") current: String = "weather_code,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_direction_10m,precipitation",
+        @Query("current") current: String = "weather_code,temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_direction_10m,precipitation",
         @Query("timezone") timezone: String = "auto",
         @Query("forecast_days") forecastDays: Int = 1,
     ): ForecastResponse
